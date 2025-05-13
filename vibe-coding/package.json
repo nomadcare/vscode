@@ -1,0 +1,47 @@
+{
+  "name": "vibe-coding",
+  "displayName": "Vibe Coding",
+  "publisher": "your-publisher",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vibeCoding",
+          "title": "Vibe",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "vibeCoding": [
+        {
+          "type": "webview",
+          "id": "vibeCodingView",
+          "name": "Vibe Coding"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "typescript": "^4.4.3",
+    "vscode": "^1.1.37",
+    "@types/vscode": "^1.60.0",
+    "@types/node": "^14.14.37",
+    "@vscode/test-electron": "^2.3.0"
+  }
+}
