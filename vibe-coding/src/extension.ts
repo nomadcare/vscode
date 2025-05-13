@@ -8,14 +8,11 @@ export function activate(context: vscode.ExtensionContext) {
 			provider
 		)
 	);
-
-	// Открываем наш контейнер в боковой панели слева
 	vscode.commands.executeCommand("workbench.view.extension.vibeCoding");
 }
 
 class VibeCodingViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = "vibeCodingView";
-
 	constructor(private readonly extensionUri: vscode.Uri) {}
 
 	resolveWebviewView(
@@ -27,136 +24,163 @@ class VibeCodingViewProvider implements vscode.WebviewViewProvider {
 			enableScripts: true,
 			localResourceRoots: [this.extensionUri],
 		};
-		webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
+		webviewView.webview.html = this.getHtml(webviewView.webview);
 	}
 
-	private getHtmlForWebview(webview: vscode.Webview): string {
+	private getHtml(webview: vscode.Webview) {
+		const csp = webview.cspSource;
 		return `<!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline';" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src ${csp} 'unsafe-inline'; script-src ${csp} 'unsafe-inline';" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Vibe Chat</title>
   <style>
     :root {
       --sidebar-width: 50px;
       --header-height: 60px;
-      --input-height: 60px;
-      --bg: #000000;
-      --bg-alt: #0a0a0a;
+      --input-height: 80px;
+      --bg: #000;
+      --bg-alt: #000;
       --fg: #ededed;
+      --border: #444;
       --accent: #0a84ff;
-      --font-family: 'Segoe UI', 'Roboto', sans-serif;
-      --base-font-size: 15px;
-      --border-color: #444444;
+      --font: 'Segoe UI','Roboto',sans-serif;
+      --fz-base: 15px;
     }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; padding: 0; height: 100vh;
-      display: flex;
-      background: var(--bg);
-      color: var(--fg);
-      font-family: var(--font-family);
-      font-size: var(--base-font-size);
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+	  html, body {
+	    height: 100vh; display: flex;
+      	background: var(--bg); color: var(--fg);
+      	font-family: var(--font); font-size: var(--fz-base);
+		/* полностью убираем любые отступы у самого документа */
+		margin: 0;
+		padding: 0;
+		/* гарантируем, что займут всю ширину/высоту контейнера */
+		width: 100%;
+		height: 100%;
+	}
     .sidebar {
-      width: var(--sidebar-width);
-      background: var(--bg-alt);
-      display: flex; flex-direction: column;
-      align-items: center;
-      padding-top: 12px;
-      border-right: 1px solid var(--border-color);
+      width: var(--sidebar-width); background: var(--bg-alt);
+      display: flex; flex-direction: column; align-items: center;
+      padding: 12px 0; border-right: 1px solid var(--border);
     }
     .sidebar button {
-      background: transparent;
-      border: none;
-      margin: 10px 0;
-      width: 32px; height: 32px;
-      border-radius: 6px;
-      cursor: pointer;
-      color: var(--fg);
-      font-size: 18px;
+      background: transparent; border: none; color: var(--fg);
+      width: 32px; height: 32px; margin: 8px 0;
+      border-radius: 6px; cursor: pointer; font-size: 18px;
     }
     .sidebar button:hover { background: rgba(255,255,255,0.1); }
+
     .main { flex: 1; display: flex; flex-direction: column; }
     .header {
-      height: var(--header-height);
-      display: flex;
-      align-items: center;
-      padding: 0 16px;
-      background: var(--bg-alt);
-      border-bottom: 1px solid var(--border-color);
-      font-weight: 600;
-      font-size: 16px;
+      height: var(--header-height); display: flex; align-items: center;
+      padding: 0 16px; background: var(--bg-alt);
+      border-bottom: 1px solid var(--border); font-weight: 600;
     }
-    .header .title {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
+    .header .title { display: flex; align-items: center; gap: 8px; }
+
     .chat {
-      flex: 1;
-      overflow-y: auto;
-      padding: 16px;
-      display: flex; flex-direction: column;
-      gap: 12px;
-      border-left: 1px solid var(--border-color);
+      flex: 1; overflow-y: auto; padding: 16px;
+      display: flex; flex-direction: column; gap: 12px;
+      border-left: 1px solid var(--border);
     }
-    .message { line-height: 1.5; max-width: 75%; }
+    .message { max-width: 75%; line-height: 1.5; }
     .message.agent { align-self: flex-start; }
     .message.agent .meta {
-      font-size: 12px; color: #999;
-      margin-bottom: 4px; display: flex; align-items: center;
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: #999; margin-bottom: 4px;
     }
     .message.agent .meta .dot {
-      width: 8px; height: 8px;
-      background: var(--accent);
-      border-radius: 50%; margin-right: 6px;
+      width: 8px; height: 8px; background: var(--accent);
+      border-radius: 50%;
     }
     .message.agent .content {
-      background: var(--bg-alt);
-      padding: 12px; border-radius: 6px;
-      border: 1px solid var(--border-color);
-      font-weight: 400;
+      background: var(--bg-alt); padding: 12px; border-radius: 6px;
+      border: 1px solid var(--border); font-weight: 400;
     }
     .message.user { align-self: flex-end; }
     .message.user .content {
-      background: var(--accent);
-      color: var(--bg);
+      background: var(--accent); color: var(--bg);
       padding: 12px; border-radius: 6px;
-      font-weight: 500;
-      border: 1px solid var(--border-color);
+      border: 1px solid var(--border); font-weight: 500;
     }
-    .input {
-      height: var(--input-height);
-      display: flex;
-      border-top: 1px solid var(--border-color);
-      background: var(--bg-alt);
-      padding: 0 12px;
-      align-items: center;
+
+    .input-bar {
+      height: var(--input-height); display: flex; align-items: center;
+      padding: 0 16px; background: var(--bg-alt);
+      border-top: 1px solid var(--border); gap: 12px;
     }
-    .input textarea {
-      flex: 1; height: 40px;
-      resize: none;
-      border: 1px solid var(--border-color);
-      outline: none;
-      background: #111;
-      color: var(--fg);
-      padding: 10px; border-radius: 6px;
-      font-size: 14px; font-family: var(--font-family);
+    .input-buttons { display: flex; gap: 8px; }
+
+    .btn {
+      background: transparent; border: none; color: var(--fg);
+      display: flex; align-items: center; justify-content: center;
+      padding: 8px; border-radius: 6px; cursor: pointer;
     }
-    .input button {
+    .btn:hover { background: rgba(255,255,255,0.1); }
+
+    .text-input {
+      flex: 1; height: 50px; padding: 0 12px;
+      border: 1px solid var(--border); border-radius: 8px;
+      background: #111; color: var(--fg);
+      font-size: 14px; outline: none;
+    }
+    .text-input::placeholder { color: #777; }
+
+    .input-right { display: flex; align-items: center; }
+    .send-btn {
+      background: var(--accent); border: none;
+      padding: 10px; border-radius: 8px; color: var(--bg);
+      margin-left: 8px; cursor: pointer;
+    }
+    .send-btn:hover { opacity: 0.9; }
+
+    /* model dropdown */
+    .model-dropdown { position: relative; }
+    .model-btn { display: flex; align-items: center; gap: 4px; }
+    .model-btn .arrow { transition: transform .2s; }
+    .model-btn.open .arrow { transform: rotate(180deg); }
+    .dropdown-menu {
+      position: absolute; left: 0; bottom: calc(var(--input-height) + 4px);
+      width: 240px; background: var(--bg-alt);
+      border: 1px solid var(--border); border-radius: 6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.5); z-index: 10;
+    }
+    .dropdown-menu.hidden { display: none; }
+
+    .dropdown-header {
+      padding: 12px; font-size: 13px; font-weight: 600;
+      color: #888;
+    }
+    .dropdown-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 8px 12px; cursor: pointer;
+    }
+    .dropdown-item:hover { background: rgba(255,255,255,0.1); }
+    .dropdown-item .icon {
+      width: 32px; height: 32px;
+      border: 1px solid var(--border); border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .dropdown-item .texts {
+      flex: 1; display: flex; flex-direction: column;
+    }
+    .dropdown-item .texts .title {
+      font-size: 14px; font-weight: 500;
+    }
+    .dropdown-item .texts .desc {
+      font-size: 12px; color: #999;
+    }
+    .dropdown-item .radio {
+      width: 12px; height: 12px; border-radius: 50%;
+      border: 2px solid var(--accent); display: flex;
+      align-items: center; justify-content: center;
+    }
+    .dropdown-item.selected .radio {
       background: var(--accent);
-      border: 1px solid var(--border-color);
-      color: var(--bg);
-      padding: 8px 16px;
-      margin-left: 10px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-      font-family: var(--font-family);
     }
   </style>
 </head>
@@ -169,48 +193,166 @@ class VibeCodingViewProvider implements vscode.WebviewViewProvider {
     <div class="header">
       <div class="title">
         Home Search Platform
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M6 9l6 6 6-6" />
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+             stroke="var(--fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 9l6 6 6-6"/>
         </svg>
       </div>
     </div>
+
     <div class="chat" id="chat">
       <div class="message agent">
         <div class="meta"><span class="dot"></span>Rork</div>
         <div class="content">Привет! Чем могу помочь?</div>
       </div>
     </div>
-    <div class="input">
-      <textarea id="input" placeholder="Опишите ваш запрос…"></textarea>
-      <button id="send">Send</button>
+
+    <div class="input-bar">
+      <div class="input-buttons">
+        <button class="btn" title="Upload image">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+        </button>
+        <div class="model-dropdown">
+          <button class="btn model-btn" id="modelBtn" title="AI model">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2C8.1 2 5 5.1 5 9c0 1.9.8 3.6 2.1 4.8L5 18l5-1.5
+                       c.8.4 1.6.7 2.5.7 3.9 0 7-3.1 7-7s-3.1-7-7-7z"/>
+              <path d="M12 2v20"/>
+            </svg>
+            <svg class="arrow" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+          <div class="dropdown-menu hidden" id="modelMenu">
+            <div class="dropdown-header">AI model</div>
+            <div class="dropdown-item selected" data-model="sonnet-3.7">
+              <div class="icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2C8.1 2 5 5.1 5 9c0 1.9.8 3.6 2.1 4.8L5 18l5-1.5
+                           c.8.4 1.6.7 2.5.7 3.9 0 7-3.1 7-7s-3.1-7-7-7z"/>
+                  <path d="M12 2v20"/>
+                </svg>
+              </div>
+              <div class="texts">
+                <div class="title">Sonnet 3.7</div>
+                <div class="desc">Best model, but can do things you didn't ask for</div>
+              </div>
+              <div class="radio"></div>
+            </div>
+            <div class="dropdown-item" data-model="sonnet-3.6">
+              <div class="icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <circle cx="12" cy="12" r="6"/>
+                  <circle cx="12" cy="12" r="2"/>
+                </svg>
+              </div>
+              <div class="texts">
+                <div class="title">Focus (Sonnet 3.6)</div>
+                <div class="desc">Good at coding and design</div>
+              </div>
+              <div class="radio"></div>
+            </div>
+            <div class="dropdown-item" data-model="grok">
+              <div class="icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M17.94 17.94A10 10 0 0 1 6.06 6.06"/>
+                  <path d="M1 1l22 22"/>
+                </svg>
+              </div>
+              <div class="texts">
+                <div class="title">Focus (Grok)</div>
+                <div class="desc">Great at coding, but not so good at design</div>
+              </div>
+              <div class="radio"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <input id="textInput" class="text-input"
+             type="text"
+             placeholder="Describe the mobile app you want to build..." />
+
+      <div class="input-right">
+        <button class="send-btn btn" id="sendBtn" title="Send">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"/>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
     </div>
   </div>
+
   <script>
-    const chat = document.getElementById('chat');
-    const input = document.getElementById('input');
-    const send = document.getElementById('send');
+    const chat = document.getElementById("chat");
+    const input = document.getElementById("textInput");
+    const sendBtn = document.getElementById("sendBtn");
+    const modelBtn = document.getElementById("modelBtn");
+    const modelMenu = document.getElementById("modelMenu");
 
-    send.addEventListener('click', () => {
-      const text = input.value.trim();
-      if (!text) return;
+    modelBtn.addEventListener("click", e => {
+      e.stopPropagation();
+      modelBtn.classList.toggle("open");
+      modelMenu.classList.toggle("hidden");
+    });
 
-      const userMsg = document.createElement('div');
-      userMsg.className = 'message user';
-      userMsg.innerHTML = '<div class="content"></div>';
-      userMsg.querySelector('.content').innerText = text;
-      chat.appendChild(userMsg);
-      input.value = '';
+    document.addEventListener("click", () => {
+      modelBtn.classList.remove("open");
+      modelMenu.classList.add("hidden");
+    });
+
+    Array.from(modelMenu.querySelectorAll(".dropdown-item")).forEach(item => {
+      item.addEventListener("click", e => {
+        modelMenu.querySelector(".selected")?.classList.remove("selected");
+        item.classList.add("selected");
+        modelBtn.classList.remove("open");
+        modelMenu.classList.add("hidden");
+        // here you can store selected model from item.dataset.model
+      });
+    });
+
+    function sendMessage(text) {
+      const msg = document.createElement("div");
+      msg.className = "message user";
+      msg.innerHTML = \`<div class="content">\${text}</div>\`;
+      chat.appendChild(msg);
       chat.scrollTop = chat.scrollHeight;
-
+      input.value = "";
       setTimeout(() => {
-        const agentMsg = document.createElement('div');
-        agentMsg.className = 'message agent';
-        agentMsg.innerHTML =
-          '<div class="meta"><span class="dot"></span>Rork</div>' +
-          '<div class="content">Это ответ агента на: "' + text + '"</div>';
-        chat.appendChild(agentMsg);
+        const r = document.createElement("div");
+        r.className = "message agent";
+        r.innerHTML = \`
+          <div class="meta"><span class="dot"></span>Rork</div>
+          <div class="content">Это ответ агента на: "\${text}"</div>
+        \`;
+        chat.appendChild(r);
         chat.scrollTop = chat.scrollHeight;
       }, 500);
+    }
+
+    sendBtn.addEventListener("click", () => {
+      const txt = input.value.trim();
+      if (txt) sendMessage(txt);
+    });
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const txt = input.value.trim();
+        if (txt) sendMessage(txt);
+      }
     });
   </script>
 </body>
