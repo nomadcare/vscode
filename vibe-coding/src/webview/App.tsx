@@ -1,57 +1,95 @@
-// src/webview/App.tsx
+import React, { useEffect, useState, useRef, useCallback } from "react";
+import styled, { ThemeProvider } from "styled-components";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+	Plus,
+	Menu as MenuIcon,
+	Camera,
+	ChevronUp,
+	ChevronDown,
+	Send,
+	Activity,
+	Code,
+	Layout,
+} from "lucide-react";
+import { theme } from "../webview/theme";
 
-import React, { useEffect, useState, useRef } from "react";
 declare const acquireVsCodeApi: any;
 const vscode = acquireVsCodeApi();
 
+type Chat = { sender: "agent" | "user"; text: string };
+const modelOptions = [
+	{
+		id: "sonnet-3.7",
+		name: "Sonnet 3.7",
+		icon: Activity,
+		desc: "Best model, but can do things you didn't ask for",
+	},
+	{
+		id: "sonnet-3.6",
+		name: "Focus (3.6)",
+		icon: Code,
+		desc: "Good at coding and design",
+	},
+	{
+		id: "grok",
+		name: "Focus (Grok)",
+		icon: Layout,
+		desc: "Great at coding, but not so good at design",
+	},
+];
+
 export default function App() {
-	const [chats, setChats] = useState<
-		{ sender: "agent" | "user"; text: string }[]
-	>([{ sender: "agent", text: "Привет! Чем могу помочь?" }]);
+	const [chats, setChats] = useState<Chat[]>([
+		{ sender: "agent", text: "Hello! How can I help you today?" },
+	]);
 	const [input, setInput] = useState("");
 	const [modelMenuOpen, setModelMenuOpen] = useState(false);
-	const [selectedModel, setSelectedModel] = useState<
-		"sonnet-3.7" | "sonnet-3.6" | "grok"
-	>("sonnet-3.7");
-	const [activeFileName, setActiveFileName] = useState<string>("");
+	const [selectedModel, setSelectedModel] = useState<string>(
+		modelOptions[0].id
+	);
+	const [activeFileName, setActiveFileName] = useState("");
 	const chatRef = useRef<HTMLDivElement>(null);
+	const selectorRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
-		// при монтировании сразу запросить активный файл
 		vscode.postMessage({ type: "getActiveFile" });
-
-		// слушаем ответы от расширения
-		const onMessage = (event: MessageEvent) => {
-			const msg = event.data;
-			if (msg.type === "activeFile") {
-				setActiveFileName(msg.fileName);
-			} else if (msg.type === "simulateResponse") {
-				appendMessage("agent", msg.code);
-			}
+		const handle = (e: MessageEvent) => {
+			const msg = e.data;
+			if (msg.type === "activeFile") setActiveFileName(msg.fileName);
+			if (msg.type === "simulateResponse") appendMessage("agent", msg.code);
 		};
-		window.addEventListener("message", onMessage);
-
-		// клики вне меню закрывают дропдаун
-		const onClickOutside = () => setModelMenuOpen(false);
-		document.addEventListener("click", onClickOutside);
-
-		return () => {
-			window.removeEventListener("message", onMessage);
-			document.removeEventListener("click", onClickOutside);
-		};
+		window.addEventListener("message", handle);
+		return () => window.removeEventListener("message", handle);
 	}, []);
 
-	const appendMessage = (sender: "agent" | "user", text: string) => {
-		setChats((prev) => [...prev, { sender, text }]);
-		setTimeout(() => {
-			chatRef.current?.scrollTo({
-				top: chatRef.current.scrollHeight,
-				behavior: "smooth",
-			});
-		}, 0);
-	};
+	// Close dropdown on outside click
+	useEffect(() => {
+		const onClickOutside = (e: MouseEvent) => {
+			if (
+				selectorRef.current &&
+				!selectorRef.current.contains(e.target as Node)
+			) {
+				setModelMenuOpen(false);
+			}
+		};
+		if (modelMenuOpen) document.addEventListener("mousedown", onClickOutside);
+		return () => document.removeEventListener("mousedown", onClickOutside);
+	}, [modelMenuOpen]);
 
-	const handleSend = () => {
+	const appendMessage = useCallback((sender: Chat["sender"], text: string) => {
+		setChats((prev) => [...prev, { sender, text }]);
+		setTimeout(
+			() =>
+				chatRef.current?.scrollTo({
+					top: chatRef.current.scrollHeight,
+					behavior: "smooth",
+				}),
+			50
+		);
+	}, []);
+
+	const handleSend = useCallback(() => {
 		if (!input.trim()) return;
 		appendMessage("user", input);
 		vscode.postMessage({
@@ -60,215 +98,384 @@ export default function App() {
 			model: selectedModel,
 		});
 		setInput("");
-	};
+		setModelMenuOpen(false);
+	}, [input, selectedModel, appendMessage]);
+
+	const current = modelOptions.find((opt) => opt.id === selectedModel)!;
 
 	return (
-		<>
-			<style>{`
-        :root {
-          --sidebar-width: 50px;
-          --header-height: 60px;
-          --input-height: 80px;
-          --bg: #000;
-          --bg-alt: #111;
-          --fg: #ededed;
-          --border: #444;
-          --accent: #0a84ff;
-          --font: 'Segoe UI','Roboto',sans-serif;
-          --fz-base: 15px;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body, #root {
-          height: 100%; width: 100%;
-          background: var(--bg); color: var(--fg);
-          font-family: var(--font); font-size: var(--fz-base);
-        }
-        .sidebar {
-          width: var(--sidebar-width);
-          background: var(--bg-alt);
-          display: flex; flex-direction: column; align-items: center;
-          padding: 12px 0; border-right: 1px solid var(--border);
-        }
-        .sidebar button {
-          background: transparent; border: none; color: var(--fg);
-          width: 32px; height: 32px; margin: 8px 0;
-          border-radius: 6px; cursor: pointer; font-size: 18px;
-        }
-        .sidebar button:hover { background: rgba(255,255,255,0.1); }
-        .main { flex: 1; display: flex; flex-direction: column; }
-        .header {
-          height: var(--header-height); display: flex; align-items: center;
-          padding: 0 16px; background: var(--bg-alt);
-          border-bottom: 1px solid var(--border); font-weight: 600;
-        }
-        .active-file {
-          margin-left: auto;
-          display: flex; align-items: center;
-          color: #0f0;
-          font-size: 14px;
-        }
-        .active-file .green-dot {
-          width: 8px; height: 8px;
-          background: #0f0;
-          border-radius: 50%;
-          margin-right: 6px;
-        }
-        .chat {
-          flex: 1; overflow-y: auto; padding: 16px;
-          display: flex; flex-direction: column; gap: 12px;
-        }
-        .message {
-          max-width: 75%; line-height: 1.5;
-        }
-        .message.agent { align-self: flex-start; }
-        .message.agent .meta {
-          display: flex; align-items: center; gap: 6px;
-          font-size: 12px; color: #999; margin-bottom: 4px;
-        }
-        .message.agent .meta .dot {
-          width: 8px; height: 8px; background: var(--accent);
-          border-radius: 50%;
-        }
-        .message.agent .content {
-          background: var(--bg-alt); padding: 12px; border-radius: 6px;
-          border: 1px solid var(--border);
-        }
-        .message.user { align-self: flex-end; }
-        .message.user .content {
-          background: var(--accent); color: var(--bg);
-          padding: 12px; border-radius: 6px;
-          border: 1px solid var(--border);
-        }
-        .input-bar {
-          height: var(--input-height); display: flex; align-items: center;
-          padding: 0 16px; background: var(--bg-alt);
-          border-top: 1px solid var(--border); gap: 12px;
-        }
-        .btn {
-          background: transparent; border: none; color: var(--fg);
-          display: flex; align-items: center; justify-content: center;
-          padding: 8px; border-radius: 6px; cursor: pointer;
-        }
-        .btn:hover { background: rgba(255,255,255,0.1); }
-        .text-input {
-          flex: 1; height: 50px; padding: 0 12px;
-          border: 1px solid var(--border); border-radius: 8px;
-          background: #111; color: var(--fg); font-size: 14px;
-        }
-        .text-input::placeholder { color: #777; }
-        .send-btn {
-          background: var(--accent); border: none;
-          padding: 10px; border-radius: 8px; color: var(--bg);
-          cursor: pointer;
-        }
-        .send-btn:hover { opacity: 0.9; }
-        .model-dropdown { position: relative; }
-        .model-menu {
-          position: absolute; left: 0; bottom: calc(var(--input-height) + 4px);
-          width: 240px; background: var(--bg-alt);
-          border: 1px solid var(--border); border-radius: 6px;
-          box-shadow: 0 2px 6px rgba(0,0,0,0.5); z-index: 10;
-        }
-        .model-item {
-          display: flex; align-items: center; gap: 12px;
-          padding: 8px 12px; cursor: pointer;
-        }
-        .model-item:hover { background: rgba(255,255,255,0.1); }
-        .model-item.selected .radio { background: var(--accent); }
-        .radio {
-          width: 12px; height: 12px; border-radius: 50%;
-          border: 2px solid var(--accent);
-        }
-      `}</style>
+		<ThemeProvider theme={theme}>
+			<Root>
+				<Sidebar>
+					<IconBtn title="New Chat">
+						<Plus size={20} />
+					</IconBtn>
+					<IconBtn title="All Chats">
+						<MenuIcon size={20} />
+					</IconBtn>
+				</Sidebar>
 
-			<div style={{ display: "flex", height: "100%" }}>
-				<div className="sidebar">
-					<button title="New Chat">＋</button>
-					<button title="All Chats">☰</button>
-				</div>
-
-				<div className="main">
-					<div className="header">
+				<Main>
+					<Header>
 						Home Search Platform
 						{activeFileName && (
-							<div className="active-file">
-								<span className="green-dot" />
+							<ActiveFile>
+								<GreenDot />
 								{activeFileName}
-							</div>
+							</ActiveFile>
 						)}
-					</div>
+					</Header>
 
-					<div className="chat" ref={chatRef}>
-						{chats.map((m, i) => (
-							<div key={i} className={`message ${m.sender}`}>
-								{m.sender === "agent" && (
-									<div className="meta">
-										<span className="dot" />
-										{selectedModel}
-									</div>
-								)}
-								<div
-									className="content"
-									dangerouslySetInnerHTML={{ __html: m.text }}
-								/>
-							</div>
-						))}
-					</div>
+					<ChatBox ref={chatRef}>
+						<AnimatePresence initial={false}>
+							{chats.map((msg, i) => (
+								<MsgWrapper
+									key={i}
+									as={motion.div}
+									variants={msgVariants}
+									initial="hidden"
+									animate="visible"
+									exit="hidden"
+									sender={msg.sender}
+								>
+									{msg.sender === "agent" && (
+										<MsgMeta>
+											<Dot />
+											{current.name}
+										</MsgMeta>
+									)}
+									<Bubble
+										sender={msg.sender}
+										dangerouslySetInnerHTML={{ __html: msg.text }}
+									/>
+								</MsgWrapper>
+							))}
+						</AnimatePresence>
+					</ChatBox>
 
-					<div className="input-bar">
-						<button className="btn" title="Upload image">
-							📷
-						</button>
+					<InputWrapper>
+						<InputBar>
+							<MessageInput
+								placeholder="Type a message..."
+								value={input}
+								onChange={(e) => setInput(e.target.value)}
+								onKeyDown={(e) => e.key === "Enter" && handleSend()}
+							/>
+						</InputBar>
 
-						<div
-							className="model-dropdown"
-							onClick={(e) => {
-								e.stopPropagation();
-								setModelMenuOpen((o) => !o);
-							}}
-						>
-							<button className="btn">{selectedModel}</button>
-							{modelMenuOpen && (
-								<div className="model-menu">
-									{[
-										{ id: "sonnet-3.7", name: "Sonnet 3.7" },
-										{ id: "sonnet-3.6", name: "Focus (Sonnet 3.6)" },
-										{ id: "grok", name: "Focus (Grok)" },
-									].map((m) => (
-										<div
-											key={m.id}
-											className={`model-item ${
-												selectedModel === m.id ? "selected" : ""
-											}`}
-											onClick={() => setSelectedModel(m.id as any)}
-										>
-											<div className="radio" />
-											<div>{m.name}</div>
-										</div>
-									))}
-								</div>
-							)}
-						</div>
-
-						<input
-							className="text-input"
-							placeholder="Describe the mobile app you want to build..."
-							value={input}
-							onChange={(e) => setInput(e.target.value)}
-							onKeyDown={(e) => {
-								if (e.key === "Enter") {
-									e.preventDefault();
-									handleSend();
-								}
-							}}
-						/>
-
-						<button className="send-btn" onClick={handleSend}>
-							➤
-						</button>
-					</div>
-				</div>
-			</div>
-		</>
+						<ButtonBar>
+							<Chips ref={selectorRef}>
+								<ActionChip title="Upload Image">
+									<Camera size={16} />
+								</ActionChip>
+								<ModelSelector>
+									<ModelButton
+										onClick={() => setModelMenuOpen((open) => !open)}
+									>
+										<current.icon size={16} />
+										<ModelLabel>{current.name}</ModelLabel>
+										{modelMenuOpen ? (
+											<ChevronUp size={16} />
+										) : (
+											<ChevronDown size={16} />
+										)}
+									</ModelButton>
+									{modelMenuOpen && (
+										<Dropdown>
+											<DropdownHeader>AI Model</DropdownHeader>
+											{modelOptions.map((opt) => (
+												<Option
+													key={opt.id}
+													selected={opt.id === selectedModel}
+													onClick={() => {
+														setSelectedModel(opt.id);
+														setModelMenuOpen(false);
+													}}
+												>
+													<IconWrapper>
+														<opt.icon size={18} />
+													</IconWrapper>
+													<TextGroup>
+														<OptionTitle>{opt.name}</OptionTitle>
+														<OptionDesc>{opt.desc}</OptionDesc>
+													</TextGroup>
+													{opt.id === selectedModel && <CheckDot />}
+												</Option>
+											))}
+										</Dropdown>
+									)}
+								</ModelSelector>
+							</Chips>
+							<Actions>
+								<SendButton onClick={handleSend} title="Send">
+									<Send size={18} />
+								</SendButton>
+							</Actions>
+						</ButtonBar>
+					</InputWrapper>
+				</Main>
+			</Root>
+		</ThemeProvider>
 	);
 }
+
+// Variants
+const msgVariants = {
+	hidden: { opacity: 0, y: 10 },
+	visible: { opacity: 1, y: 0, transition: { duration: 0.2 } },
+};
+
+// Styled
+const Root = styled.div`
+	display: flex;
+	width: 100vw;
+	height: 100vh;
+	background: ${(p) => p.theme.colors.bg};
+	color: ${(p) => p.theme.colors.fg};
+	font-family: ${(p) => p.theme.fonts.family};
+	font-size: ${(p) => p.theme.fonts.base};
+`;
+const Sidebar = styled.aside`
+	width: ${(p) => p.theme.sizes.sidebarWidth};
+	background: ${(p) => p.theme.colors.bgAlt};
+	border-right: 1px solid ${(p) => p.theme.colors.border};
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	padding: 16px 0;
+`;
+const IconBtn = styled.button`
+	background: transparent;
+	border: none;
+	padding: 8px;
+	border-radius: 8px;
+	cursor: pointer;
+	color: ${(p) => p.theme.colors.fg};
+	&:hover {
+		background: rgba(255, 255, 255, 0.1);
+		transform: scale(1.1);
+	}
+	transition: background 0.2s, transform 0.2s;
+`;
+const Main = styled.main`
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+`;
+const Header = styled.header`
+	height: ${(p) => p.theme.sizes.headerHeight};
+	background: ${(p) => p.theme.colors.bgAlt};
+	border-bottom: 1px solid ${(p) => p.theme.colors.border};
+	display: flex;
+	align-items: center;
+	padding: 0 24px;
+	font-weight: 600;
+`;
+const ActiveFile = styled.div`
+	margin-left: auto;
+	display: flex;
+	align-items: center;
+	color: #0f0;
+	font-size: 14px;
+`;
+const GreenDot = styled.span`
+	width: 8px;
+	height: 8px;
+	background: #0f0;
+	border-radius: 50%;
+	margin-right: 8px;
+`;
+const ChatBox = styled.div`
+	flex: 1;
+	overflow-y: auto;
+	padding: 24px;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+`;
+const MsgWrapper = styled.div<{ sender: string }>`
+	display: flex;
+	flex-direction: column;
+	align-items: ${(p) => (p.sender === "user" ? "flex-end" : "flex-start")};
+`;
+const MsgMeta = styled.div`
+	font-size: 12px;
+	color: #999;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 4px;
+`;
+const Dot = styled.span`
+	width: 6px;
+	height: 6px;
+	background: ${(p) => p.theme.colors.accent};
+	border-radius: 50%;
+`;
+const Bubble = styled.div<{ sender: string }>`
+	max-width: 75%;
+	padding: 12px 16px;
+	background: ${(p) =>
+		p.sender === "agent" ? p.theme.colors.bgAlt : p.theme.colors.userMsg};
+	color: ${(p) =>
+		p.sender === "agent" ? p.theme.colors.fg : p.theme.colors.bg};
+	border: 1px solid ${(p) => p.theme.colors.border};
+	border-radius: 16px;
+	line-height: 1.5;
+`;
+const InputWrapper = styled.div`
+	margin: 16px 24px;
+	background: ${(p) => p.theme.colors.bgAlt};
+	border: 1px solid ${(p) => p.theme.colors.border};
+	border-radius: 16px;
+	overflow: visible;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+`;
+const InputBar = styled.div`
+	display: flex;
+	align-items: center;
+	padding: 12px 16px;
+`;
+const MessageInput = styled.textarea`
+	flex: 1;
+	padding: 12px 16px;
+	border: none;
+	border-radius: 12px;
+	font-size: 14px;
+	background: ${(p) => p.theme.colors.bg};
+	color: ${(p) => p.theme.colors.fg};
+	resize: none;
+	min-height: 44px;
+	line-height: 1.4;
+	&:focus {
+		outline: none;
+	}
+`;
+const ButtonBar = styled.div`
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 12px 16px;
+	border-top: 1px solid ${(p) => p.theme.colors.border};
+`;
+const Chips = styled.div`
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	position: relative;
+`;
+const ActionChip = styled.button`
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 12px;
+	background: ${(p) => p.theme.colors.bg};
+	color: ${(p) => p.theme.colors.fg};
+	border: 1px solid ${(p) => p.theme.colors.border};
+	border-radius: 999px;
+	font-size: 14px;
+	cursor: pointer;
+	&:hover {
+		background: rgba(255, 255, 255, 0.1);
+	}
+	transition: background 0.2s;
+`;
+const ModelSelector = styled.div`
+	position: relative;
+`;
+const ModelButton = styled.button`
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	background: #000;
+	color: #fff;
+	border: 1px solid #222;
+	border-radius: 999px;
+	font-size: 14px;
+	cursor: pointer;
+	&:hover {
+		background: #111;
+	}
+	transition: background 0.2s;
+`;
+const ModelLabel = styled.span`
+	font-weight: 500;
+`;
+const Dropdown = styled.div`
+	position: absolute;
+	bottom: 100%;
+	left: 0;
+	margin-bottom: 6px;
+	width: 260px;
+	background: ${(p) => p.theme.colors.bgAlt};
+	border: 1px solid ${(p) => p.theme.colors.border};
+	border-radius: 12px;
+	box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+	overflow: hidden;
+	z-index: 20;
+`;
+const DropdownHeader = styled.div`
+	padding: 12px 16px;
+	font-size: 16px;
+	font-weight: 600;
+	border-bottom: 1px solid ${(p) => p.theme.colors.border};
+`;
+const Option = styled.div<{ selected: boolean }>`
+	display: flex;
+	align-items: flex-start;
+	padding: 12px 16px;
+	gap: 12px;
+	cursor: pointer;
+	background: ${(p) => (p.selected ? "rgba(10,132,255,0.1)" : "transparent")};
+	&:hover {
+		background: rgba(255, 255, 255, 0.1);
+	}
+	transition: background 0.2s;
+`;
+const IconWrapper = styled.div`
+	margin-top: 4px;
+	color: ${(p) => p.theme.colors.accent};
+`;
+const TextGroup = styled.div`
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+`;
+const OptionTitle = styled.div`
+	font-size: 15px;
+	font-weight: 500;
+`;
+const OptionDesc = styled.div`
+	font-size: 13px;
+	color: #999;
+`;
+const CheckDot = styled.div`
+	width: 8px;
+	height: 8px;
+	background: ${(p) => p.theme.colors.accent};
+	border-radius: 50%;
+	margin-top: 6px;
+`;
+const Actions = styled.div`
+	display: flex;
+	align-items: center;
+`;
+const SendButton = styled.button`
+	background: ${(p) => p.theme.colors.accent};
+	border: none;
+	width: 44px;
+	height: 44px;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	&:hover {
+		transform: scale(1.1);
+		box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+	}
+	transition: transform 0.2s, box-shadow 0.2s;
+`;

@@ -1,49 +1,100 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const jsx_runtime_1 = require("react/jsx-runtime");
-// src/webview/App.tsx
 const react_1 = require("react");
+const styled_components_1 = __importStar(require("styled-components"));
+const framer_motion_1 = require("framer-motion");
+const lucide_react_1 = require("lucide-react");
+const theme_1 = require("../webview/theme");
 const vscode = acquireVsCodeApi();
+const modelOptions = [
+    {
+        id: "sonnet-3.7",
+        name: "Sonnet 3.7",
+        icon: lucide_react_1.Activity,
+        desc: "Best model, but can do things you didn't ask for",
+    },
+    {
+        id: "sonnet-3.6",
+        name: "Focus (3.6)",
+        icon: lucide_react_1.Code,
+        desc: "Good at coding and design",
+    },
+    {
+        id: "grok",
+        name: "Focus (Grok)",
+        icon: lucide_react_1.Layout,
+        desc: "Great at coding, but not so good at design",
+    },
+];
 function App() {
-    const [chats, setChats] = (0, react_1.useState)([{ sender: "agent", text: "Привет! Чем могу помочь?" }]);
+    const [chats, setChats] = (0, react_1.useState)([
+        { sender: "agent", text: "Hello! How can I help you today?" },
+    ]);
     const [input, setInput] = (0, react_1.useState)("");
     const [modelMenuOpen, setModelMenuOpen] = (0, react_1.useState)(false);
-    const [selectedModel, setSelectedModel] = (0, react_1.useState)("sonnet-3.7");
+    const [selectedModel, setSelectedModel] = (0, react_1.useState)(modelOptions[0].id);
     const [activeFileName, setActiveFileName] = (0, react_1.useState)("");
     const chatRef = (0, react_1.useRef)(null);
+    const selectorRef = (0, react_1.useRef)(null);
     (0, react_1.useEffect)(() => {
-        // при монтировании сразу запросить активный файл
         vscode.postMessage({ type: "getActiveFile" });
-        // слушаем ответы от расширения
-        const onMessage = (event) => {
-            const msg = event.data;
-            if (msg.type === "activeFile") {
+        const handle = (e) => {
+            const msg = e.data;
+            if (msg.type === "activeFile")
                 setActiveFileName(msg.fileName);
-            }
-            else if (msg.type === "simulateResponse") {
+            if (msg.type === "simulateResponse")
                 appendMessage("agent", msg.code);
+        };
+        window.addEventListener("message", handle);
+        return () => window.removeEventListener("message", handle);
+    }, []);
+    // Close dropdown on outside click
+    (0, react_1.useEffect)(() => {
+        const onClickOutside = (e) => {
+            if (selectorRef.current &&
+                !selectorRef.current.contains(e.target)) {
+                setModelMenuOpen(false);
             }
         };
-        window.addEventListener("message", onMessage);
-        // клики вне меню закрывают дропдаун
-        const onClickOutside = () => setModelMenuOpen(false);
-        document.addEventListener("click", onClickOutside);
-        return () => {
-            window.removeEventListener("message", onMessage);
-            document.removeEventListener("click", onClickOutside);
-        };
-    }, []);
-    const appendMessage = (sender, text) => {
+        if (modelMenuOpen)
+            document.addEventListener("mousedown", onClickOutside);
+        return () => document.removeEventListener("mousedown", onClickOutside);
+    }, [modelMenuOpen]);
+    const appendMessage = (0, react_1.useCallback)((sender, text) => {
         setChats((prev) => [...prev, { sender, text }]);
         setTimeout(() => {
             var _a;
-            (_a = chatRef.current) === null || _a === void 0 ? void 0 : _a.scrollTo({
+            return (_a = chatRef.current) === null || _a === void 0 ? void 0 : _a.scrollTo({
                 top: chatRef.current.scrollHeight,
                 behavior: "smooth",
             });
-        }, 0);
-    };
-    const handleSend = () => {
+        }, 50);
+    }, []);
+    const handleSend = (0, react_1.useCallback)(() => {
         if (!input.trim())
             return;
         appendMessage("user", input);
@@ -53,135 +104,270 @@ function App() {
             model: selectedModel,
         });
         setInput("");
-    };
-    return ((0, jsx_runtime_1.jsxs)(jsx_runtime_1.Fragment, { children: [(0, jsx_runtime_1.jsx)("style", { children: `
-        :root {
-          --sidebar-width: 50px;
-          --header-height: 60px;
-          --input-height: 80px;
-          --bg: #000;
-          --bg-alt: #111;
-          --fg: #ededed;
-          --border: #444;
-          --accent: #0a84ff;
-          --font: 'Segoe UI','Roboto',sans-serif;
-          --fz-base: 15px;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body, #root {
-          height: 100%; width: 100%;
-          background: var(--bg); color: var(--fg);
-          font-family: var(--font); font-size: var(--fz-base);
-        }
-        .sidebar {
-          width: var(--sidebar-width);
-          background: var(--bg-alt);
-          display: flex; flex-direction: column; align-items: center;
-          padding: 12px 0; border-right: 1px solid var(--border);
-        }
-        .sidebar button {
-          background: transparent; border: none; color: var(--fg);
-          width: 32px; height: 32px; margin: 8px 0;
-          border-radius: 6px; cursor: pointer; font-size: 18px;
-        }
-        .sidebar button:hover { background: rgba(255,255,255,0.1); }
-        .main { flex: 1; display: flex; flex-direction: column; }
-        .header {
-          height: var(--header-height); display: flex; align-items: center;
-          padding: 0 16px; background: var(--bg-alt);
-          border-bottom: 1px solid var(--border); font-weight: 600;
-        }
-        .active-file {
-          margin-left: auto;
-          display: flex; align-items: center;
-          color: #0f0;
-          font-size: 14px;
-        }
-        .active-file .green-dot {
-          width: 8px; height: 8px;
-          background: #0f0;
-          border-radius: 50%;
-          margin-right: 6px;
-        }
-        .chat {
-          flex: 1; overflow-y: auto; padding: 16px;
-          display: flex; flex-direction: column; gap: 12px;
-        }
-        .message {
-          max-width: 75%; line-height: 1.5;
-        }
-        .message.agent { align-self: flex-start; }
-        .message.agent .meta {
-          display: flex; align-items: center; gap: 6px;
-          font-size: 12px; color: #999; margin-bottom: 4px;
-        }
-        .message.agent .meta .dot {
-          width: 8px; height: 8px; background: var(--accent);
-          border-radius: 50%;
-        }
-        .message.agent .content {
-          background: var(--bg-alt); padding: 12px; border-radius: 6px;
-          border: 1px solid var(--border);
-        }
-        .message.user { align-self: flex-end; }
-        .message.user .content {
-          background: var(--accent); color: var(--bg);
-          padding: 12px; border-radius: 6px;
-          border: 1px solid var(--border);
-        }
-        .input-bar {
-          height: var(--input-height); display: flex; align-items: center;
-          padding: 0 16px; background: var(--bg-alt);
-          border-top: 1px solid var(--border); gap: 12px;
-        }
-        .btn {
-          background: transparent; border: none; color: var(--fg);
-          display: flex; align-items: center; justify-content: center;
-          padding: 8px; border-radius: 6px; cursor: pointer;
-        }
-        .btn:hover { background: rgba(255,255,255,0.1); }
-        .text-input {
-          flex: 1; height: 50px; padding: 0 12px;
-          border: 1px solid var(--border); border-radius: 8px;
-          background: #111; color: var(--fg); font-size: 14px;
-        }
-        .text-input::placeholder { color: #777; }
-        .send-btn {
-          background: var(--accent); border: none;
-          padding: 10px; border-radius: 8px; color: var(--bg);
-          cursor: pointer;
-        }
-        .send-btn:hover { opacity: 0.9; }
-        .model-dropdown { position: relative; }
-        .model-menu {
-          position: absolute; left: 0; bottom: calc(var(--input-height) + 4px);
-          width: 240px; background: var(--bg-alt);
-          border: 1px solid var(--border); border-radius: 6px;
-          box-shadow: 0 2px 6px rgba(0,0,0,0.5); z-index: 10;
-        }
-        .model-item {
-          display: flex; align-items: center; gap: 12px;
-          padding: 8px 12px; cursor: pointer;
-        }
-        .model-item:hover { background: rgba(255,255,255,0.1); }
-        .model-item.selected .radio { background: var(--accent); }
-        .radio {
-          width: 12px; height: 12px; border-radius: 50%;
-          border: 2px solid var(--accent);
-        }
-      ` }), (0, jsx_runtime_1.jsxs)("div", Object.assign({ style: { display: "flex", height: "100%" } }, { children: [(0, jsx_runtime_1.jsxs)("div", Object.assign({ className: "sidebar" }, { children: [(0, jsx_runtime_1.jsx)("button", Object.assign({ title: "New Chat" }, { children: "\uFF0B" })), (0, jsx_runtime_1.jsx)("button", Object.assign({ title: "All Chats" }, { children: "\u2630" }))] })), (0, jsx_runtime_1.jsxs)("div", Object.assign({ className: "main" }, { children: [(0, jsx_runtime_1.jsxs)("div", Object.assign({ className: "header" }, { children: ["Home Search Platform", activeFileName && ((0, jsx_runtime_1.jsxs)("div", Object.assign({ className: "active-file" }, { children: [(0, jsx_runtime_1.jsx)("span", { className: "green-dot" }), activeFileName] })))] })), (0, jsx_runtime_1.jsx)("div", Object.assign({ className: "chat", ref: chatRef }, { children: chats.map((m, i) => ((0, jsx_runtime_1.jsxs)("div", Object.assign({ className: `message ${m.sender}` }, { children: [m.sender === "agent" && ((0, jsx_runtime_1.jsxs)("div", Object.assign({ className: "meta" }, { children: [(0, jsx_runtime_1.jsx)("span", { className: "dot" }), selectedModel] }))), (0, jsx_runtime_1.jsx)("div", { className: "content", dangerouslySetInnerHTML: { __html: m.text } })] }), i))) })), (0, jsx_runtime_1.jsxs)("div", Object.assign({ className: "input-bar" }, { children: [(0, jsx_runtime_1.jsx)("button", Object.assign({ className: "btn", title: "Upload image" }, { children: "\uD83D\uDCF7" })), (0, jsx_runtime_1.jsxs)("div", Object.assign({ className: "model-dropdown", onClick: (e) => {
-                                            e.stopPropagation();
-                                            setModelMenuOpen((o) => !o);
-                                        } }, { children: [(0, jsx_runtime_1.jsx)("button", Object.assign({ className: "btn" }, { children: selectedModel })), modelMenuOpen && ((0, jsx_runtime_1.jsx)("div", Object.assign({ className: "model-menu" }, { children: [
-                                                    { id: "sonnet-3.7", name: "Sonnet 3.7" },
-                                                    { id: "sonnet-3.6", name: "Focus (Sonnet 3.6)" },
-                                                    { id: "grok", name: "Focus (Grok)" },
-                                                ].map((m) => ((0, jsx_runtime_1.jsxs)("div", Object.assign({ className: `model-item ${selectedModel === m.id ? "selected" : ""}`, onClick: () => setSelectedModel(m.id) }, { children: [(0, jsx_runtime_1.jsx)("div", { className: "radio" }), (0, jsx_runtime_1.jsx)("div", { children: m.name })] }), m.id))) })))] })), (0, jsx_runtime_1.jsx)("input", { className: "text-input", placeholder: "Describe the mobile app you want to build...", value: input, onChange: (e) => setInput(e.target.value), onKeyDown: (e) => {
-                                            if (e.key === "Enter") {
-                                                e.preventDefault();
-                                                handleSend();
-                                            }
-                                        } }), (0, jsx_runtime_1.jsx)("button", Object.assign({ className: "send-btn", onClick: handleSend }, { children: "\u27A4" }))] }))] }))] }))] }));
+        setModelMenuOpen(false);
+    }, [input, selectedModel, appendMessage]);
+    const current = modelOptions.find((opt) => opt.id === selectedModel);
+    return ((0, jsx_runtime_1.jsx)(styled_components_1.ThemeProvider, Object.assign({ theme: theme_1.theme }, { children: (0, jsx_runtime_1.jsxs)(Root, { children: [(0, jsx_runtime_1.jsxs)(Sidebar, { children: [(0, jsx_runtime_1.jsx)(IconBtn, Object.assign({ title: "New Chat" }, { children: (0, jsx_runtime_1.jsx)(lucide_react_1.Plus, { size: 20 }) })), (0, jsx_runtime_1.jsx)(IconBtn, Object.assign({ title: "All Chats" }, { children: (0, jsx_runtime_1.jsx)(lucide_react_1.Menu, { size: 20 }) }))] }), (0, jsx_runtime_1.jsxs)(Main, { children: [(0, jsx_runtime_1.jsxs)(Header, { children: ["Home Search Platform", activeFileName && ((0, jsx_runtime_1.jsxs)(ActiveFile, { children: [(0, jsx_runtime_1.jsx)(GreenDot, {}), activeFileName] }))] }), (0, jsx_runtime_1.jsx)(ChatBox, Object.assign({ ref: chatRef }, { children: (0, jsx_runtime_1.jsx)(framer_motion_1.AnimatePresence, Object.assign({ initial: false }, { children: chats.map((msg, i) => ((0, jsx_runtime_1.jsxs)(MsgWrapper, Object.assign({ as: framer_motion_1.motion.div, variants: msgVariants, initial: "hidden", animate: "visible", exit: "hidden", sender: msg.sender }, { children: [msg.sender === "agent" && ((0, jsx_runtime_1.jsxs)(MsgMeta, { children: [(0, jsx_runtime_1.jsx)(Dot, {}), current.name] })), (0, jsx_runtime_1.jsx)(Bubble, { sender: msg.sender, dangerouslySetInnerHTML: { __html: msg.text } })] }), i))) })) })), (0, jsx_runtime_1.jsxs)(InputWrapper, { children: [(0, jsx_runtime_1.jsx)(InputBar, { children: (0, jsx_runtime_1.jsx)(MessageInput, { placeholder: "Type a message...", value: input, onChange: (e) => setInput(e.target.value), onKeyDown: (e) => e.key === "Enter" && handleSend() }) }), (0, jsx_runtime_1.jsxs)(ButtonBar, { children: [(0, jsx_runtime_1.jsxs)(Chips, Object.assign({ ref: selectorRef }, { children: [(0, jsx_runtime_1.jsx)(ActionChip, Object.assign({ title: "Upload Image" }, { children: (0, jsx_runtime_1.jsx)(lucide_react_1.Camera, { size: 16 }) })), (0, jsx_runtime_1.jsxs)(ModelSelector, { children: [(0, jsx_runtime_1.jsxs)(ModelButton, Object.assign({ onClick: () => setModelMenuOpen((open) => !open) }, { children: [(0, jsx_runtime_1.jsx)(current.icon, { size: 16 }), (0, jsx_runtime_1.jsx)(ModelLabel, { children: current.name }), modelMenuOpen ? ((0, jsx_runtime_1.jsx)(lucide_react_1.ChevronUp, { size: 16 })) : ((0, jsx_runtime_1.jsx)(lucide_react_1.ChevronDown, { size: 16 }))] })), modelMenuOpen && ((0, jsx_runtime_1.jsxs)(Dropdown, { children: [(0, jsx_runtime_1.jsx)(DropdownHeader, { children: "AI Model" }), modelOptions.map((opt) => ((0, jsx_runtime_1.jsxs)(Option, Object.assign({ selected: opt.id === selectedModel, onClick: () => {
+                                                                        setSelectedModel(opt.id);
+                                                                        setModelMenuOpen(false);
+                                                                    } }, { children: [(0, jsx_runtime_1.jsx)(IconWrapper, { children: (0, jsx_runtime_1.jsx)(opt.icon, { size: 18 }) }), (0, jsx_runtime_1.jsxs)(TextGroup, { children: [(0, jsx_runtime_1.jsx)(OptionTitle, { children: opt.name }), (0, jsx_runtime_1.jsx)(OptionDesc, { children: opt.desc })] }), opt.id === selectedModel && (0, jsx_runtime_1.jsx)(CheckDot, {})] }), opt.id)))] }))] })] })), (0, jsx_runtime_1.jsx)(Actions, { children: (0, jsx_runtime_1.jsx)(SendButton, Object.assign({ onClick: handleSend, title: "Send" }, { children: (0, jsx_runtime_1.jsx)(lucide_react_1.Send, { size: 18 }) })) })] })] })] })] }) })));
 }
 exports.default = App;
+// Variants
+const msgVariants = {
+    hidden: { opacity: 0, y: 10 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.2 } },
+};
+// Styled
+const Root = styled_components_1.default.div `
+	display: flex;
+	width: 100vw;
+	height: 100vh;
+	background: ${(p) => p.theme.colors.bg};
+	color: ${(p) => p.theme.colors.fg};
+	font-family: ${(p) => p.theme.fonts.family};
+	font-size: ${(p) => p.theme.fonts.base};
+`;
+const Sidebar = styled_components_1.default.aside `
+	width: ${(p) => p.theme.sizes.sidebarWidth};
+	background: ${(p) => p.theme.colors.bgAlt};
+	border-right: 1px solid ${(p) => p.theme.colors.border};
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	padding: 16px 0;
+`;
+const IconBtn = styled_components_1.default.button `
+	background: transparent;
+	border: none;
+	padding: 8px;
+	border-radius: 8px;
+	cursor: pointer;
+	color: ${(p) => p.theme.colors.fg};
+	&:hover {
+		background: rgba(255, 255, 255, 0.1);
+		transform: scale(1.1);
+	}
+	transition: background 0.2s, transform 0.2s;
+`;
+const Main = styled_components_1.default.main `
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+`;
+const Header = styled_components_1.default.header `
+	height: ${(p) => p.theme.sizes.headerHeight};
+	background: ${(p) => p.theme.colors.bgAlt};
+	border-bottom: 1px solid ${(p) => p.theme.colors.border};
+	display: flex;
+	align-items: center;
+	padding: 0 24px;
+	font-weight: 600;
+`;
+const ActiveFile = styled_components_1.default.div `
+	margin-left: auto;
+	display: flex;
+	align-items: center;
+	color: #0f0;
+	font-size: 14px;
+`;
+const GreenDot = styled_components_1.default.span `
+	width: 8px;
+	height: 8px;
+	background: #0f0;
+	border-radius: 50%;
+	margin-right: 8px;
+`;
+const ChatBox = styled_components_1.default.div `
+	flex: 1;
+	overflow-y: auto;
+	padding: 24px;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+`;
+const MsgWrapper = styled_components_1.default.div `
+	display: flex;
+	flex-direction: column;
+	align-items: ${(p) => (p.sender === "user" ? "flex-end" : "flex-start")};
+`;
+const MsgMeta = styled_components_1.default.div `
+	font-size: 12px;
+	color: #999;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 4px;
+`;
+const Dot = styled_components_1.default.span `
+	width: 6px;
+	height: 6px;
+	background: ${(p) => p.theme.colors.accent};
+	border-radius: 50%;
+`;
+const Bubble = styled_components_1.default.div `
+	max-width: 75%;
+	padding: 12px 16px;
+	background: ${(p) => p.sender === "agent" ? p.theme.colors.bgAlt : p.theme.colors.userMsg};
+	color: ${(p) => p.sender === "agent" ? p.theme.colors.fg : p.theme.colors.bg};
+	border: 1px solid ${(p) => p.theme.colors.border};
+	border-radius: 16px;
+	line-height: 1.5;
+`;
+const InputWrapper = styled_components_1.default.div `
+	margin: 16px 24px;
+	background: ${(p) => p.theme.colors.bgAlt};
+	border: 1px solid ${(p) => p.theme.colors.border};
+	border-radius: 16px;
+	overflow: visible;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+`;
+const InputBar = styled_components_1.default.div `
+	display: flex;
+	align-items: center;
+	padding: 12px 16px;
+`;
+const MessageInput = styled_components_1.default.textarea `
+	flex: 1;
+	padding: 12px 16px;
+	border: none;
+	border-radius: 12px;
+	font-size: 14px;
+	background: ${(p) => p.theme.colors.bg};
+	color: ${(p) => p.theme.colors.fg};
+	resize: none;
+	min-height: 44px;
+	line-height: 1.4;
+	&:focus {
+		outline: none;
+	}
+`;
+const ButtonBar = styled_components_1.default.div `
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 12px 16px;
+	border-top: 1px solid ${(p) => p.theme.colors.border};
+`;
+const Chips = styled_components_1.default.div `
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	position: relative;
+`;
+const ActionChip = styled_components_1.default.button `
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 12px;
+	background: ${(p) => p.theme.colors.bg};
+	color: ${(p) => p.theme.colors.fg};
+	border: 1px solid ${(p) => p.theme.colors.border};
+	border-radius: 999px;
+	font-size: 14px;
+	cursor: pointer;
+	&:hover {
+		background: rgba(255, 255, 255, 0.1);
+	}
+	transition: background 0.2s;
+`;
+const ModelSelector = styled_components_1.default.div `
+	position: relative;
+`;
+const ModelButton = styled_components_1.default.button `
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	background: #000;
+	color: #fff;
+	border: 1px solid #222;
+	border-radius: 999px;
+	font-size: 14px;
+	cursor: pointer;
+	&:hover {
+		background: #111;
+	}
+	transition: background 0.2s;
+`;
+const ModelLabel = styled_components_1.default.span `
+	font-weight: 500;
+`;
+const Dropdown = styled_components_1.default.div `
+	position: absolute;
+	bottom: 100%;
+	left: 0;
+	margin-bottom: 6px;
+	width: 260px;
+	background: ${(p) => p.theme.colors.bgAlt};
+	border: 1px solid ${(p) => p.theme.colors.border};
+	border-radius: 12px;
+	box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+	overflow: hidden;
+	z-index: 20;
+`;
+const DropdownHeader = styled_components_1.default.div `
+	padding: 12px 16px;
+	font-size: 16px;
+	font-weight: 600;
+	border-bottom: 1px solid ${(p) => p.theme.colors.border};
+`;
+const Option = styled_components_1.default.div `
+	display: flex;
+	align-items: flex-start;
+	padding: 12px 16px;
+	gap: 12px;
+	cursor: pointer;
+	background: ${(p) => (p.selected ? "rgba(10,132,255,0.1)" : "transparent")};
+	&:hover {
+		background: rgba(255, 255, 255, 0.1);
+	}
+	transition: background 0.2s;
+`;
+const IconWrapper = styled_components_1.default.div `
+	margin-top: 4px;
+	color: ${(p) => p.theme.colors.accent};
+`;
+const TextGroup = styled_components_1.default.div `
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+`;
+const OptionTitle = styled_components_1.default.div `
+	font-size: 15px;
+	font-weight: 500;
+`;
+const OptionDesc = styled_components_1.default.div `
+	font-size: 13px;
+	color: #999;
+`;
+const CheckDot = styled_components_1.default.div `
+	width: 8px;
+	height: 8px;
+	background: ${(p) => p.theme.colors.accent};
+	border-radius: 50%;
+	margin-top: 6px;
+`;
+const Actions = styled_components_1.default.div `
+	display: flex;
+	align-items: center;
+`;
+const SendButton = styled_components_1.default.button `
+	background: ${(p) => p.theme.colors.accent};
+	border: none;
+	width: 44px;
+	height: 44px;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	&:hover {
+		transform: scale(1.1);
+		box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+	}
+	transition: transform 0.2s, box-shadow 0.2s;
+`;
 //# sourceMappingURL=App.js.map
