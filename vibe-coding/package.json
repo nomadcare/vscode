@@ -30,19 +30,30 @@
       ]
     }
   },
+  "configuration": {
+    "title": "Expo Claude Generator",
+    "properties": {
+      "expoClaude.anthropicApiKey": {
+        "type": "string",
+        "default": "",
+        "description": "Anthropic Claude API key"
+      }
+    }
+  },
   "scripts": {
     "compile": "tsc -p ./",
     "build-webview": "node esbuild.config.js",
     "watch-webview": "node esbuild.config.js --watch",
     "watch-extension": "tsc -w -p ./",
     "build": "npm run compile && npm run build-webview",
-    "watch": "concurrently \"npm run watch-extension\" \"npm run watch-webview\""
+    "watch": "concurrently \"npm run watch-extension\" \"npm run watch-webview\"",
+    "start": "expo start"
   },
   "devDependencies": {
     "@types/node": "^14.18.63",
     "@types/react": "^19.1.4",
     "@types/react-dom": "^19.1.5",
-    "@types/vscode": "^1.100.0",
+    "@types/vscode": "^1.37.0",
     "@vscode/test-electron": "^2.3.0",
     "concurrently": "^9.1.2",
     "esbuild": "^0.25.4",
@@ -50,7 +61,10 @@
     "vscode": "^1.1.37"
   },
   "dependencies": {
+    "framer-motion": "^12.11.3",
+    "lucide-react": "^0.510.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "styled-components": "^6.1.18"
   }
 }
