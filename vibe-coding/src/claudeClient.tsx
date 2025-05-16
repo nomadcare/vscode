@@ -1,8 +1,47 @@
-import fetch from "node-fetch"; // убедитесь, что добавили зависимость "node-fetch"
+// File: claudeClient.ts
+import fetch from "node-fetch";
 import { Message } from "./projectState";
 
 const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
-const ANTHROPIC_VERSION = "2023-06-01"; // версия API (может обновляться)
+const ANTHROPIC_VERSION = "2023-06-01";
+
+// Системный промпт для Claude
+const SYSTEM_PROMPT = [
+	"Ты — ассистент по генерации проектов Expo (React Native).",
+	"При запросе типа “Create expo app” сгенерируй полный исходный код всех файлов и папок, которые создаёт стандартный шаблон create-expo-app (managed workflow):",
+	"- package.json",
+	"- app.json",
+	"- babel.config.js",
+	"- metro.config.js (с watcher.enablePolling: true, interval: 1000 и разрешением импорта `punycode` через extraNodeModules)",
+	"- Установить и прописать в зависимостях `punycode` (npm install punycode)",
+	"- .gitignore",
+	"- App.js",
+	"- README.md",
+	"- папку assets с placeholder-заглушками icon.png и splash.png",
+	"Если пользователь в своём запросе указывает дополнительные файлы или папки — добавь их тоже.",
+	"",
+	"Возвращай **только** Markdown-блоки, без лишнего текста. Формат:",
+	"1) Для обычного файла:",
+	"```<язык>           ← javascript, json, text и т.д.",
+	"// File: <имя_файла>  ← обязательно с расширением",
+	"<полный контент файла>",
+	"```",
+	"2) Для папки:",
+	"```text",
+	"// Folder: <имя_папки>",
+	"```",
+	"3) Для ассетов:",
+	"```text",
+	"// File: assets/icon.png",
+	"Placeholder for image file icon.png",
+	"```",
+	"",
+	"После всех файлов обязательно добавь последний блок с командами установки и запуска проекта:",
+	"```shell",
+	"npm install punycode && npm install && npx expo start",
+	"```",
+	"Никаких дополнительных пояснений вне этих блоков.",
+].join(" ");
 
 export class ClaudeClient {
 	private apiKey: string | undefined;
@@ -11,12 +50,6 @@ export class ClaudeClient {
 		this.apiKey = apiKey;
 	}
 
-	/**
-	 * Отправить сообщения (историю диалога + новый промпт) в Claude и получить ответ.
-	 * @param messages Массив сообщений (история), включая последнее сообщение пользователя.
-	 * @param onData Callback, вызываемый при получении каждой части текстового ответа.
-	 * @returns Полный ответ ассистента (после завершения стрима).
-	 */
 	async sendMessageStream(
 		messages: Message[],
 		onData: (partialText: string) => void
@@ -27,18 +60,12 @@ export class ClaudeClient {
 			);
 		}
 
-		const requestBody: any = {
+		const requestBody = {
 			model: "claude-3-7-sonnet-20250219",
 			messages: messages.map((m) => ({ role: m.role, content: m.content })),
 			max_tokens: 10000,
 			stream: true,
-			system:
-				"Ты – ассистент, помогающий генерировать Expo (React Native) проект. " +
-				"Действуй по запросу пользователя и возвращай код проекта. " +
-				"Форматируй ответ в виде Markdown-кода по файлам: для каждого файла начинай новый блок кода с указанием языка " +
-				"и на первой строке внутри него комментарием вида '// File: <имя файла>'. " +
-				"Заверши каждый файл закрывающим ``` и затем начинай следующий, чтобы каждое файло было отдельным блоком кода. " +
-				"Не добавляй лишних пояснений вне этих блоков.",
+			system: SYSTEM_PROMPT,
 		};
 
 		const response = await fetch(CLAUDE_API_URL, {
@@ -59,22 +86,19 @@ export class ClaudeClient {
 			throw new Error("Пустой поток ответа от Claude.");
 		}
 
-		// NodeJS ReadableStream приводим к AsyncIterable<Uint8Array>
 		const stream = response.body as unknown as AsyncIterable<Uint8Array>;
 		const decoder = new TextDecoder();
 		let fullResponse = "";
 		let buffer = "";
 
 		for await (const chunk of stream) {
-			// Декодируем и аккумулируем в буфер
 			buffer += decoder.decode(chunk, { stream: true });
 			const lines = buffer.split("\n");
-			buffer = lines.pop()!; // последняя, возможно неполная строка
+			buffer = lines.pop()!;
 
 			for (const line of lines) {
 				const trimmed = line.trim();
 				if (!trimmed.startsWith("data:")) continue;
-
 				const dataStr = trimmed.replace(/^data:\s*/, "");
 				if (dataStr === "[DONE]") continue;
 
@@ -97,7 +121,6 @@ export class ClaudeClient {
 					}
 				}
 
-				// при явном окончании сообщения можно прервать
 				if (data.type === "message_stop") {
 					return fullResponse;
 				}
