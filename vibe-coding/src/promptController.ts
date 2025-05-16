@@ -27,19 +27,16 @@ export class PromptController {
 		this.projectState.addUserMessage(prompt);
 		this.view.webview.postMessage({
 			type: "status",
-			message: "Генерация проекта...",
+			message: "Генерация проекта…",
 		});
 		this.view.show?.(true);
 
 		try {
 			await this.claudeClient.sendMessageStream(
 				this.projectState.getConversation(),
-				(partialText: string) => {
-					this.processStreamedText(partialText);
-				}
+				(chunk) => this.processStreamedText(chunk)
 			);
 
-			// После успешной генерации файлов — устанавливаем зависимости и запускаем проект
 			await this.fileWriter.installDependenciesAndLaunch();
 
 			this.view.webview.postMessage({
@@ -54,25 +51,43 @@ export class PromptController {
 
 	private async processStreamedText(chunk: string) {
 		this.buffer += chunk;
-		this.view.webview.postMessage({ type: "partial", content: chunk });
 
-		const blockRe = /```(\w+)\s*\n\/\/\s*File:\s*(.+?)\r?\n([\s\S]*?)```/;
+		// Отправляем событие начала файла, как только встретили его заголовок
+		const headerRe = /```[\w-]*\s*\n\/\/\s*File:\s*(.+?)\r?\n/;
+		const headerMatch = headerRe.exec(chunk);
+		if (headerMatch) {
+			this.view.webview.postMessage({
+				type: "fileStart",
+				file: headerMatch[1].trim(),
+			});
+		}
+
+		// Парсим полностью полученные код-блоки
+		const blockRe = /```([\w-]+)?\s*\n\/\/\s*File:\s*(.+?)\r?\n([\s\S]*?)```/gm;
 		let match: RegExpExecArray | null;
 
 		while ((match = blockRe.exec(this.buffer))) {
-			const [, lang, rawName, content] = match;
+			const [, lang = "", rawName, content] = match;
 			let fileName = rawName.trim();
+
 			if (!/\.\w+$/.test(fileName)) {
 				const ext =
-					lang === "javascript" ? "js" : lang === "typescript" ? "ts" : lang;
+					lang === "javascript"
+						? "js"
+						: lang === "typescript"
+						? "ts"
+						: lang || "txt";
 				fileName = `${fileName}.${ext}`;
 			}
 
+			// Файл завершён генерацией – сообщаем и сохраняем
+			this.view.webview.postMessage({ type: "fileEnd", file: fileName });
 			await this.fileWriter.writeFile(fileName, content);
 			this.view.webview.postMessage({ type: "fileSaved", file: fileName });
 
-			// Убираем обработанный блок из буфера
-			this.buffer = this.buffer.slice(match.index! + match[0].length);
+			// Обрезаем из буфера обработанный блок
+			this.buffer = this.buffer.slice(match.index + match[0].length);
+			blockRe.lastIndex = 0;
 		}
 	}
 }

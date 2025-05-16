@@ -60,14 +60,6 @@ export class ClaudeClient {
 			);
 		}
 
-		const requestBody = {
-			model: "claude-3-7-sonnet-20250219",
-			messages: messages.map((m) => ({ role: m.role, content: m.content })),
-			max_tokens: 10000,
-			stream: true,
-			system: SYSTEM_PROMPT,
-		};
-
 		const response = await fetch(CLAUDE_API_URL, {
 			method: "POST",
 			headers: {
@@ -75,12 +67,18 @@ export class ClaudeClient {
 				"anthropic-version": ANTHROPIC_VERSION,
 				"content-type": "application/json",
 			},
-			body: JSON.stringify(requestBody),
+			body: JSON.stringify({
+				model: "claude-3-7-sonnet-20250219",
+				messages: messages.map((m) => ({ role: m.role, content: m.content })),
+				max_tokens: 10000,
+				stream: true,
+				system: SYSTEM_PROMPT,
+			}),
 		});
 
 		if (!response.ok) {
 			const errText = await response.text();
-			throw new Error(`Ошибка API Claude: ${response.status} - ${errText}`);
+			throw new Error(`Ошибка API Claude: ${response.status} – ${errText}`);
 		}
 		if (!response.body) {
 			throw new Error("Пустой поток ответа от Claude.");
@@ -88,45 +86,38 @@ export class ClaudeClient {
 
 		const stream = response.body as unknown as AsyncIterable<Uint8Array>;
 		const decoder = new TextDecoder();
-		let fullResponse = "";
-		let buffer = "";
+		let full = "";
+		let buf = "";
 
 		for await (const chunk of stream) {
-			buffer += decoder.decode(chunk, { stream: true });
-			const lines = buffer.split("\n");
-			buffer = lines.pop()!;
+			buf += decoder.decode(chunk, { stream: true });
+			const lines = buf.split("\n");
+			buf = lines.pop()!;
 
 			for (const line of lines) {
-				const trimmed = line.trim();
-				if (!trimmed.startsWith("data:")) continue;
-				const dataStr = trimmed.replace(/^data:\s*/, "");
-				if (dataStr === "[DONE]") continue;
+				const t = line.trim();
+				if (!t.startsWith("data:")) continue;
+				const payload = t.replace(/^data:\s*/, "");
+				if (payload === "[DONE]") continue;
 
-				let data: any;
 				try {
-					data = JSON.parse(dataStr);
-				} catch (e) {
-					console.error("Ошибка парсинга JSON из потока Claude:", e, dataStr);
-					continue;
-				}
-
-				if (
-					data.type === "content_block_delta" &&
-					data.delta?.type === "text_delta"
-				) {
-					const content = data.delta.text;
-					if (content) {
-						fullResponse += content;
-						onData(content);
+					const data = JSON.parse(payload);
+					if (
+						data.type === "content_block_delta" &&
+						data.delta?.type === "text_delta"
+					) {
+						const text = data.delta.text;
+						if (text) {
+							full += text;
+							onData(text);
+						}
 					}
-				}
-
-				if (data.type === "message_stop") {
-					return fullResponse;
+					if (data.type === "message_stop") return full;
+				} catch (e) {
+					console.error("Ошибка парсинга JSON:", e, payload);
 				}
 			}
 		}
-
-		return fullResponse;
+		return full;
 	}
 }
