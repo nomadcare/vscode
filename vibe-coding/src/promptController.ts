@@ -27,7 +27,7 @@ export class PromptController {
 		this.projectState.addUserMessage(prompt);
 		this.view.webview.postMessage({
 			type: "status",
-			message: "Генерация проекта…",
+			message: "Processing...",
 		});
 		this.view.show?.(true);
 

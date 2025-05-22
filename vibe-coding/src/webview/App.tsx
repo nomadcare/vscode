@@ -10,8 +10,6 @@ import {
 	Send,
 	Activity,
 	Code,
-	Layout,
-	Loader,
 } from "lucide-react";
 import { theme } from "../webview/theme";
 
@@ -33,19 +31,13 @@ const modelOptions = [
 		id: "sonnet-3.7",
 		name: "Sonnet 3.7",
 		icon: Activity,
-		desc: "Лучший, но может делать лишнее",
+		desc: "Best model",
 	},
 	{
 		id: "sonnet-3.6",
 		name: "Focus (3.6)",
 		icon: Code,
-		desc: "Хорош для кода и дизайна",
-	},
-	{
-		id: "grok",
-		name: "Focus (Grok)",
-		icon: Layout,
-		desc: "Отлично кодит, дизайн похуже",
+		desc: "For code and design",
 	},
 ];
 
@@ -53,6 +45,14 @@ const generateId = () =>
 	`${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 const GlobalStyle = createGlobalStyle`
+  /* сбрасываем все отступы, включительно с webview */
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+  }
+
   .spinner {
     animation: spin 0.4s linear infinite;
     display: inline-block;
