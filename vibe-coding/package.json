@@ -61,6 +61,7 @@
     "vscode": "^1.1.37"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.8",
     "framer-motion": "^12.11.3",
     "lucide-react": "^0.510.0",
     "react": "^19.1.0",

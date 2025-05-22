@@ -12,6 +12,7 @@ import {
 	Code,
 } from "lucide-react";
 import { theme } from "../webview/theme";
+import { supabase } from "./supabaseClient";
 
 declare const acquireVsCodeApi: any;
 const vscode =
@@ -25,14 +26,8 @@ type Chat = {
 	content: React.ReactNode;
 };
 
-// Опции моделей
 const modelOptions = [
-	{
-		id: "sonnet-3.7",
-		name: "Sonnet 3.7",
-		icon: Activity,
-		desc: "Best model",
-	},
+	{ id: "sonnet-3.7", name: "Sonnet 3.7", icon: Activity, desc: "Best model" },
 	{
 		id: "sonnet-3.5",
 		name: "Haiku 3.5",
@@ -41,30 +36,30 @@ const modelOptions = [
 	},
 ];
 
+// Mapping between UI model IDs and backend model identifiers
+const modelMap: Record<string, string> = {
+	"sonnet-3.7": "claude-3-7-sonnet-20250219",
+	"sonnet-3.5": "claude-3-5-haiku-20241022",
+};
+
 const generateId = () =>
 	`${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 const GlobalStyle = createGlobalStyle`
-  /* сбрасываем все отступы, включительно с webview */
-  html, body {
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    height: 100%;
-  }
-
-  .spinner {
-    animation: spin 0.4s linear infinite;
-    display: inline-block;
-    vertical-align: middle;
-  }
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; }
+  .spinner { animation: spin 0.4s linear infinite; display: inline-block; vertical-align: middle; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 `;
 
 export default function App() {
+	// --- Auth state ---
+	const [email, setEmail] = useState("");
+	const [password, setPassword] = useState("");
+	const [user, setUser] = useState<any>(null);
+	const [authError, setAuthError] = useState<string | null>(null);
+	const [loadingAuth, setLoadingAuth] = useState(false);
+
+	// --- Chat state ---
 	const [chats, setChats] = useState<Chat[]>([
 		{
 			id: generateId(),
@@ -76,34 +71,63 @@ export default function App() {
 	const [modelMenuOpen, setModelMenuOpen] = useState(false);
 	const [selectedModel, setSelectedModel] = useState(modelOptions[0].id);
 	const [activeFileName, setActiveFileName] = useState("");
-	const chatRef = useRef<HTMLDivElement>(null);
 
-	// Для единственного стрим-баббла
+	const chatRef = useRef<HTMLDivElement>(null);
 	const streamRef = useRef<{ id: string; lines: React.ReactNode[] } | null>(
 		null
 	);
 
+	// --- Helpers ---
 	const scrollToBottom = () => {
 		setTimeout(() => {
 			chatRef.current?.scrollTo({
-				top: chatRef.current.scrollHeight,
+				top: chatRef.current!.scrollHeight,
 				behavior: "smooth",
 			});
 		}, 50);
 	};
 
-	useEffect(() => {
-		vscode.postMessage({ type: "getActiveFile" });
-	}, []);
-
 	const appendMessage = useCallback(
 		(sender: Chat["sender"], content: React.ReactNode) => {
-			const msg = { id: generateId(), sender, content };
-			setChats((prev) => [...prev, msg]);
+			setChats((prev) => [...prev, { id: generateId(), sender, content }]);
 			scrollToBottom();
 		},
 		[]
 	);
+
+	// --- Auth handlers ---
+	const handleLogin = useCallback(async () => {
+		setLoadingAuth(true);
+		setAuthError(null);
+		const { data, error } = await supabase.auth.signInWithPassword({
+			email,
+			password,
+		});
+		setLoadingAuth(false);
+		if (error) setAuthError(error.message);
+		else setUser(data.session?.user || null);
+	}, [email, password]);
+
+	const handleLogout = useCallback(async () => {
+		await supabase.auth.signOut();
+		setUser(null);
+	}, []);
+
+	// --- Effects: auth session ---
+	useEffect(() => {
+		supabase.auth
+			.getSession()
+			.then(({ data: { session } }) => setUser(session?.user || null));
+		const { data: listener } = supabase.auth.onAuthStateChange((_, session) =>
+			setUser(session?.user || null)
+		);
+		return () => listener.subscription.unsubscribe();
+	}, []);
+
+	// --- Effects: VSCode messages ---
+	useEffect(() => {
+		vscode.postMessage({ type: "getActiveFile" });
+	}, []);
 
 	useEffect(() => {
 		const handler = (e: MessageEvent) => {
@@ -177,7 +201,8 @@ export default function App() {
 						appendMessage(
 							"agent",
 							<>
-								<b>✅ {msg.file}</b> saved
+								{" "}
+								<b>✅ {msg.file}</b> saved{" "}
 							</>
 						);
 					}
@@ -190,7 +215,8 @@ export default function App() {
 					appendMessage(
 						"agent",
 						<>
-							<b>Ошибка:</b> {msg.message}
+							{" "}
+							<b>Ошибка:</b> {msg.message}{" "}
 						</>
 					);
 					break;
@@ -208,23 +234,45 @@ export default function App() {
 				<b>User:</b> {input}
 			</>
 		);
-
-		const modelMap: Record<string, string> = {
-			"sonnet-3.7": "claude-3-7-sonnet-20250219",
-			"sonnet-3.5": "claude-3-5-haiku-20241022",
-		};
-
 		vscode.postMessage({
 			type: "prompt",
 			value: input,
 			model: modelMap[selectedModel],
 		});
-
 		setInput("");
 		setModelMenuOpen(false);
 	};
 
 	const current = modelOptions.find((o) => o.id === selectedModel)!;
+
+	// --- Render ---
+	if (!user) {
+		return (
+			<>
+				<GlobalStyle />
+				<ThemeProvider theme={theme}>
+					<AuthContainer>
+						{authError && <ErrorText>{authError}</ErrorText>}
+						<Input
+							type="email"
+							placeholder="Email"
+							value={email}
+							onChange={(e) => setEmail(e.target.value)}
+						/>
+						<Input
+							type="password"
+							placeholder="Password"
+							value={password}
+							onChange={(e) => setPassword(e.target.value)}
+						/>
+						<AuthButton onClick={handleLogin} disabled={loadingAuth}>
+							{loadingAuth ? <span className="spinner">⏳</span> : "Login"}
+						</AuthButton>
+					</AuthContainer>
+				</ThemeProvider>
+			</>
+		);
+	}
 
 	return (
 		<>
@@ -242,6 +290,10 @@ export default function App() {
 					<Main>
 						<Header>
 							Home Search Platform
+							<UserInfo>
+								Logged in as {user.email}
+								<LogoutButton onClick={handleLogout}>Logout</LogoutButton>
+							</UserInfo>
 							{activeFileName && (
 								<ActiveFile>
 									<GreenDot />
@@ -336,27 +388,42 @@ export default function App() {
 	);
 }
 
-// Компонент для потокового пузыря без внутреннего бордера
-const StreamBubble = styled.div`
+// Styled components
+const AuthContainer = styled.div`
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
-	max-width: 75%;
-	padding: 12px 16px;
-	background: ${({ theme }) => theme.colors.bgAlt};
-	border-radius: 16px;
-	overflow: hidden;
+	align-items: center;
+	justify-content: center;
+	height: 100vh;
+	background: ${({ theme }) => theme.colors.bg};
+	color: ${({ theme }) => theme.colors.fg};
 `;
-
-const msgVariants = {
-	hidden: { opacity: 0, y: 10 },
-	visible: { opacity: 1, y: 0, transition: { duration: 0.2 } },
-};
-
-// Styled components: Root, Sidebar, IconBtn, Main, Header, ActiveFile, GreenDot, ChatBox, MsgWrapper,
-// MsgMeta, Dot, Bubble, InputWrapper, InputBar, MessageInput, ButtonBar, Chips, ActionChip,
-// ModelSelector, ModelButton, ModelLabel, Dropdown, DropdownHeader, Option, IconWrapper,
-// TextGroup, OptionTitle, OptionDesc, CheckDot, Actions, SendButton
+const Input = styled.input`
+	width: 280px;
+	margin: 8px 0;
+	padding: 10px;
+	background: ${({ theme }) => theme.colors.bgAlt};
+	color: ${({ theme }) => theme.colors.fg};
+	border: 1px solid ${({ theme }) => theme.colors.border};
+	border-radius: 8px;
+`;
+const AuthButton = styled.button`
+	margin-top: 12px;
+	padding: 10px 20px;
+	background: ${({ theme }) => theme.colors.accent};
+	color: #fff;
+	border: none;
+	border-radius: 8px;
+	cursor: pointer;
+	&:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+`;
+const ErrorText = styled.p`
+	color: #f00;
+	margin-bottom: 8px;
+`;
 const Root = styled.div`
 	display: flex;
 	width: 100vw;
@@ -559,7 +626,6 @@ const Option = styled.div<{ selected: boolean }>`
 		background: rgba(255, 255, 255, 0.1);
 	}
 `;
-
 const IconWrapper = styled.div`
 	margin-top: 4px;
 	color: ${({ theme }) => theme.colors.accent};
@@ -602,5 +668,40 @@ const SendButton = styled.button`
 	&:hover {
 		transform: scale(1.1);
 		box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+	}
+`;
+const StreamBubble = styled.div`
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	max-width: 75%;
+	padding: 12px 16px;
+	background: ${({ theme }) => theme.colors.bgAlt};
+	border-radius: 16px;
+	overflow: hidden;
+`;
+const msgVariants = {
+	hidden: { opacity: 0, y: 10 },
+	visible: { opacity: 1, y: 0, transition: { duration: 0.2 } },
+};
+
+// Styled components definitions
+const UserInfo = styled.div`
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-left: auto;
+	font-size: 14px;
+`;
+
+const LogoutButton = styled.button`
+	padding: 6px 12px;
+	background: ${({ theme }) => "#e00"};
+	color: #fff;
+	border: none;
+	border-radius: 8px;
+	cursor: pointer;
+	&:hover {
+		opacity: 0.8;
 	}
 `;
