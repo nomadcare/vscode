@@ -23,7 +23,7 @@ export class PromptController {
 		this.view = view;
 	}
 
-	async handlePrompt(prompt: string): Promise<void> {
+	async handlePrompt(prompt: string, model: string): Promise<void> {
 		this.projectState.addUserMessage(prompt);
 		this.view.webview.postMessage({
 			type: "status",
@@ -34,6 +34,7 @@ export class PromptController {
 		try {
 			await this.claudeClient.sendMessageStream(
 				this.projectState.getConversation(),
+				model,
 				(chunk) => this.processStreamedText(chunk)
 			);
 

@@ -34,8 +34,8 @@ const modelOptions = [
 		desc: "Best model",
 	},
 	{
-		id: "sonnet-3.6",
-		name: "Focus (3.6)",
+		id: "sonnet-3.5",
+		name: "Haiku 3.5",
 		icon: Code,
 		desc: "For code and design",
 	},
@@ -208,7 +208,18 @@ export default function App() {
 				<b>User:</b> {input}
 			</>
 		);
-		vscode.postMessage({ type: "prompt", value: input, model: selectedModel });
+
+		const modelMap: Record<string, string> = {
+			"sonnet-3.7": "claude-3-7-sonnet-20250219",
+			"sonnet-3.5": "claude-3-5-haiku-20241022",
+		};
+
+		vscode.postMessage({
+			type: "prompt",
+			value: input,
+			model: modelMap[selectedModel],
+		});
+
 		setInput("");
 		setModelMenuOpen(false);
 	};

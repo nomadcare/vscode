@@ -87,11 +87,8 @@ class VibeCodingViewProvider implements vscode.WebviewViewProvider {
 			if (!msg?.type) return;
 
 			if (msg.type === "prompt" && this.promptController) {
-				await this.promptController.handlePrompt(msg.value).catch((err) => {
-					vscode.window.showErrorMessage(
-						`Ошибка генерации проекта: ${err.message}`
-					);
-				});
+				// pass the selected model through
+				await this.promptController.handlePrompt(msg.value, msg.model);
 			}
 		});
 	}

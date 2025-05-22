@@ -5,89 +5,108 @@ import { Message } from "./projectState";
 const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
 
-// Системный промпт для Claude
+const MODEL_TOKEN_LIMITS: Record<string, number> = {
+	"claude-3-5-haiku-20241022": 8192, // лимит токенов для Haiku
+	"claude-3-7-sonnet-20250219": 10000, // лимит токенов для Sonnet
+};
+
+/**
+ * СИСТЕМНЫЙ ПРОМПТ
+ *
+ * Логику и перечень файлов оставили прежними, но добавили строгое требование:
+ * 1. Открывающая тройная кавычка с указанием языка ДОЛЖНА быть на отдельной строке.
+ * 2. Сразу после неё — перевод строки и строка `// File: <имя_файла>`.
+ * 3. Запрещено писать `// File:` на той же строке, что и ```.
+ */
 const SYSTEM_PROMPT = [
 	"Ты — ассистент по генерации проектов Expo (React Native).",
+	"",
 	"При запросе типа “Create expo app” сгенерируй полный исходный код всех файлов и папок, которые создаёт стандартный шаблон create-expo-app (managed workflow):",
 	"- package.json",
 	"- app.json",
 	"- babel.config.js",
-	"- metro.config.js (с watcher.enablePolling: true, interval: 1000 и разрешением импорта `punycode` через extraNodeModules)",
+	"- metro.config.js (c watcher.enablePolling: true, interval: 1000 и разрешением импорта `punycode` через extraNodeModules)",
 	"- Установить и прописать в зависимостях `punycode` (npm install punycode)",
 	"- .gitignore",
 	"- App.js",
 	"- README.md",
-	"- папку assets с placeholder-заглушками icon.png и splash.png",
-	"Если пользователь в своём запросе указывает дополнительные файлы или папки — добавь их тоже.",
+	"- Папку assets с placeholder-заглушками icon.png и splash.png",
+	"Если пользователь указывает дополнительные файлы или папки — добавь их тоже.",
 	"",
-	"Возвращай **только** Markdown-блоки, без лишнего текста. Формат:",
-	"1) Для обычного файла:",
-	"```<язык>           ← javascript, json, text и т.д.",
-	"// File: <имя_файла>  ← обязательно с расширением",
-	"<полный контент файла>",
-	"```",
-	"2) Для папки:",
-	"```text",
-	"// Folder: <имя_папки>",
-	"```",
-	"3) Для ассетов:",
-	"```text",
-	"// File: assets/icon.png",
-	"Placeholder for image file icon.png",
+	"⚠️ **ВАЖНО**: формат каждого блока кода _обязателен_. Открывающая строка с ```<язык> стоит ОТДЕЛЬНО,",
+	"затем перевод строки, затем **на новой строке** `// File: <имя_файла>` (или `// Folder:`).",
+	"Никогда не ставь `// File:` на той же строке, что и ```.",
+	"",
+	"Пример правильного файла:",
+	"```javascript",
+	"// File: package.json",
+	"{",
+	'  "name": "my-app"',
+	"}",
 	"```",
 	"",
-	"После всех файлов обязательно добавь последний блок с командами установки и запуска проекта:",
+	"Пример правильной папки:",
+	"```text",
+	"// Folder: src",
+	"```",
+	"",
+	"После всех файлов добавь последний блок с командами запуска:",
 	"```shell",
 	"npm install punycode && npm install && npx expo start",
 	"```",
-	"Никаких дополнительных пояснений вне этих блоков.",
+	"",
+	"Никаких пояснений вне этих Markdown-блоков.",
 ].join(" ");
 
 export class ClaudeClient {
-	private apiKey: string | undefined;
+	private apiKey?: string;
 
-	constructor(apiKey: string | undefined) {
+	constructor(apiKey?: string) {
 		this.apiKey = apiKey;
 	}
 
 	async sendMessageStream(
 		messages: Message[],
+		model: string,
 		onData: (partialText: string) => void
 	): Promise<string> {
 		if (!this.apiKey) {
-			throw new Error(
-				"API ключ Claude не задан. Укажите anthropicApiKey в настройках."
-			);
+			throw new Error("API ключ Claude не задан.");
 		}
 
-		const response = await fetch(CLAUDE_API_URL, {
+		const maxTokens = MODEL_TOKEN_LIMITS[model] ?? 8192;
+
+		const payload = {
+			model,
+			messages: messages.map((m) => ({ role: m.role, content: m.content })),
+			max_tokens: maxTokens,
+			system: SYSTEM_PROMPT,
+			stream: true,
+		};
+
+		const resp = await fetch(CLAUDE_API_URL, {
 			method: "POST",
 			headers: {
 				"x-api-key": this.apiKey,
 				"anthropic-version": ANTHROPIC_VERSION,
 				"content-type": "application/json",
 			},
-			body: JSON.stringify({
-				model: "claude-3-7-sonnet-20250219",
-				messages: messages.map((m) => ({ role: m.role, content: m.content })),
-				max_tokens: 10000,
-				stream: true,
-				system: SYSTEM_PROMPT,
-			}),
+			body: JSON.stringify(payload),
 		});
 
-		if (!response.ok) {
-			const errText = await response.text();
-			throw new Error(`Ошибка API Claude: ${response.status} – ${errText}`);
+		if (!resp.ok) {
+			const errText = await resp.text();
+			throw new Error(`Ошибка API Claude: ${resp.status} – ${errText}`);
 		}
-		if (!response.body) {
+		if (!resp.body) {
 			throw new Error("Пустой поток ответа от Claude.");
 		}
 
-		const stream = response.body as unknown as AsyncIterable<Uint8Array>;
+		// === Чтение стрима ===
+		const stream = resp.body as unknown as AsyncIterable<Uint8Array>;
 		const decoder = new TextDecoder();
-		let full = "";
 		let buf = "";
+		let full = "";
 
 		for await (const chunk of stream) {
 			buf += decoder.decode(chunk, { stream: true });
@@ -112,12 +131,15 @@ export class ClaudeClient {
 							onData(text);
 						}
 					}
-					if (data.type === "message_stop") return full;
+					if (data.type === "message_stop") {
+						return full;
+					}
 				} catch (e) {
-					console.error("Ошибка парсинга JSON:", e, payload);
+					console.error("Error parse JSON:", e, payload);
 				}
 			}
 		}
+
 		return full;
 	}
 }
