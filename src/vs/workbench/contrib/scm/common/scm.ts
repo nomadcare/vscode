@@ -22,6 +22,11 @@ export const VIEW_PANE_ID = 'workbench.scm';
 export const REPOSITORIES_VIEW_PANE_ID = 'workbench.scm.repositories';
 export const HISTORY_VIEW_PANE_ID = 'workbench.scm.history';
 
+export const enum ViewMode {
+	List = 'list',
+	Tree = 'tree'
+}
+
 export interface IBaselineResourceProvider {
 	getBaselineResource(resource: URI): Promise<URI>;
 }
@@ -234,6 +239,9 @@ export interface ISCMViewService {
 	 */
 	readonly activeRepository: IObservable<ISCMRepository | undefined>;
 	pinActiveRepository(repository: ISCMRepository | undefined): void;
+
+	readonly viewMode: IObservable<ViewMode>;
+	setViewMode(viewMode: ViewMode): void;
 }
 
 export const SCM_CHANGES_EDITOR_ID = 'workbench.editor.scmChangesEditor';

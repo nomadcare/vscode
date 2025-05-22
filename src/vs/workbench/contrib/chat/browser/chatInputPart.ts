@@ -22,6 +22,7 @@ import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposab
 import { ResourceSet } from '../../../../base/common/map.js';
 import { observableFromEvent } from '../../../../base/common/observable.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
+import { isEqual } from '../../../../base/common/resources.js';
 import { assertType } from '../../../../base/common/types.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IEditorConstructionOptions } from '../../../../editor/browser/config/editorConfiguration.js';
@@ -152,6 +153,10 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 
 	private _onDidAcceptFollowup: Emitter<{ followup: IChatFollowup; response: IChatResponseViewModel | undefined }>;
 	readonly onDidAcceptFollowup: Event<{ followup: IChatFollowup; response: IChatResponseViewModel | undefined }>;
+
+	// private implicitPart: ImplicitContextAttachmentWidget | undefined;
+	// private includedFiles = new Set<URI>();
+	private recentlyRemovedAttachments = new Set<URI>();
 
 	private readonly _attachmentModel: ChatAttachmentModel;
 	public get attachmentModel(): ChatAttachmentModel {
@@ -635,6 +640,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 	}
 
 	initForNewChatModel(state: IChatViewState, modelIsEmpty: boolean): void {
+		this.recentlyRemovedAttachments.clear();
 		this.history = this.loadHistory();
 		this.history.add({
 			text: state.inputValue ?? this.history.current().text,
@@ -956,7 +962,10 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 				this.instantiationService.createInstance(ChatImplicitContext),
 			);
 
-			this._register(this._implicitContext.onDidChangeValue(() => this._handleAttachedContextChange()));
+			this._register(this._implicitContext.onDidChangeValue(() => {
+				this.recentlyRemovedAttachments.clear();
+				this._handleAttachedContextChange();
+			}));
 		}
 
 		this.renderAttachedContext();
@@ -1215,11 +1224,6 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 			this._indexOfLastAttachedContextDeletedWithKeyboard = -1;
 		}
 
-		if (this.implicitContext?.value) {
-			const implicitPart = store.add(this.instantiationService.createInstance(ImplicitContextAttachmentWidget, this.implicitContext, this._contextResourceLabels));
-			container.appendChild(implicitPart.domNode);
-		}
-
 		this.promptFileAttached.set(this.hasPromptFileAttachments);
 		this.promptInstructionsAttachmentsPart.render(container);
 
@@ -1233,7 +1237,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 			if (resource && isNotebookOutputVariableEntry(attachment)) {
 				attachmentWidget = this.instantiationService.createInstance(NotebookCellOutputChatAttachmentWidget, resource, attachment, this._currentLanguageModel, options, container, this._contextResourceLabels, hoverDelegate);
 			} else if (resource && (attachment.kind === 'file' || attachment.kind === 'directory')) {
-				attachmentWidget = this.instantiationService.createInstance(FileAttachmentWidget, resource, range, attachment, this._currentLanguageModel, options, container, this._contextResourceLabels, hoverDelegate);
+				attachmentWidget = this.instantiationService.createInstance(FileAttachmentWidget, resource, range, attachment, undefined, this._currentLanguageModel, options, container, this._contextResourceLabels, hoverDelegate);
 			} else if (isImageVariableEntry(attachment)) {
 				attachmentWidget = this.instantiationService.createInstance(ImageAttachmentWidget, resource, attachment, this._currentLanguageModel, options, container, this._contextResourceLabels, hoverDelegate);
 			} else if (isElementVariableEntry(attachment)) {
@@ -1243,12 +1247,32 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 			} else if (isSCMHistoryItemVariableEntry(attachment)) {
 				attachmentWidget = this.instantiationService.createInstance(SCMHistoryItemAttachmentWidget, attachment, this._currentLanguageModel, options, container, this._contextResourceLabels, hoverDelegate);
 			} else {
-				attachmentWidget = this.instantiationService.createInstance(DefaultChatAttachmentWidget, resource, range, attachment, this._currentLanguageModel, options, container, this._contextResourceLabels, hoverDelegate);
+				attachmentWidget = this.instantiationService.createInstance(DefaultChatAttachmentWidget, resource, range, attachment, undefined, this._currentLanguageModel, options, container, this._contextResourceLabels, hoverDelegate);
 			}
 			store.add(attachmentWidget);
 			store.add(attachmentWidget.onDidDelete(e => {
 				this.handleAttachmentDeletion(e, index, attachment);
 			}));
+		}
+
+		const implicitUri = this.implicitContext?.value;
+		let recentlyAttached = false;
+
+		if (URI.isUri(implicitUri)) {
+			// check if file exists in current attachments
+			recentlyAttached = attachments.some(
+				([, attachment]) => URI.isUri(attachment.value) && attachment.value.fsPath === implicitUri.fsPath
+			);
+
+			// if not found in attachments, check in recently removed attachments
+			if (!recentlyAttached) {
+				recentlyAttached = [...this.recentlyRemovedAttachments].some(removed => isEqual(removed, implicitUri));
+			}
+		}
+
+		if (this.implicitContext?.value && URI.isUri(implicitUri) && !recentlyAttached) {
+			const implicitPart = store.add(this.instantiationService.createInstance(ImplicitContextAttachmentWidget, this.implicitContext, this._contextResourceLabels, this._attachmentModel));
+			container.appendChild(implicitPart.domNode);
 		}
 
 		if (oldHeight !== this.attachmentsContainer.offsetHeight) {
@@ -1262,6 +1286,10 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 			this._indexOfLastAttachedContextDeletedWithKeyboard = index;
 		}
 
+		if (URI.isUri(attachment.value)) {
+			this.recentlyRemovedAttachments.add(attachment.value);
+		}
+
 		this._attachmentModel.delete(attachment.id);
 
 		if (this._attachmentModel.size === 0) {
@@ -1269,6 +1297,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		}
 
 		this._onDidChangeContext.fire({ removed: [attachment] });
+		this.renderAttachedContext();
 	}
 
 	async renderChatEditingSessionState(chatEditingSession: IChatEditingSession | null) {
