@@ -41,7 +41,7 @@ export class PromptController {
 
 			this.view.webview.postMessage({
 				type: "done",
-				message: "Проект сгенерирован и запущен (npx expo start).",
+				message: "Done... let's launch it. (npx expo start).",
 			});
 		} catch (error: any) {
 			this.view.webview.postMessage({ type: "error", message: error.message });

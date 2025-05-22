@@ -66,7 +66,11 @@ const GlobalStyle = createGlobalStyle`
 
 export default function App() {
 	const [chats, setChats] = useState<Chat[]>([
-		{ id: generateId(), sender: "agent", content: "Привет! Чем могу помочь?" },
+		{
+			id: generateId(),
+			sender: "agent",
+			content: "Hi! I’m your dedicated mobile app development agent...",
+		},
 	]);
 	const [input, setInput] = useState("");
 	const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -112,7 +116,7 @@ export default function App() {
 				case "status":
 					if (
 						typeof msg.message === "string" &&
-						msg.message.includes("Генерация проекта")
+						msg.message.includes("Processing")
 					) {
 						const id = generateId();
 						streamRef.current = {
@@ -152,7 +156,7 @@ export default function App() {
 								animate={{ opacity: 1 }}
 								transition={{ duration: 0.3 }}
 							>
-								✅ <b>{msg.file}</b> сгенерировано и сохранено
+								✅ <b>{msg.file}</b> saved
 							</motion.div>
 						);
 						streamRef.current.lines.push(line);
@@ -173,7 +177,7 @@ export default function App() {
 						appendMessage(
 							"agent",
 							<>
-								<b>✅ {msg.file}</b> сгенерировано и сохранено
+								<b>✅ {msg.file}</b> saved
 							</>
 						);
 					}
