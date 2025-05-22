@@ -73,11 +73,11 @@ class VibeCodingViewProvider implements vscode.WebviewViewProvider {
 			vscode.workspace
 				.getConfiguration("expoClaude")
 				.get<string>("anthropicApiKey") ??
-			process.env.ANTHROPIC_API_KEY;
+			"";
 
 		this.promptController = new PromptController(
 			new ProjectState(),
-			new ClaudeClient(""),
+			new ClaudeClient(apiKey),
 			new FileWriter(),
 			webviewView // передаём WebView для сообщений
 		);
