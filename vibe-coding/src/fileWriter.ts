@@ -1,46 +1,74 @@
-// File: fileWriter.ts
+// File: src/fileWriter.ts
 import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 
 export class FileWriter {
-	// Определяем путь рабочей папки пользователя
+	/** Имя, по которому будем находить и закрывать «наши» терминалы */
+	private static readonly TERM_NAME = "Expo Project";
+
+	// ───────── helpers ─────────
 	private getWorkspaceFolder(): string {
 		const folders = vscode.workspace.workspaceFolders;
-		if (!folders || folders.length === 0) {
-			throw new Error("Рабочая папка не открыта в VS Code");
-		}
+		if (!folders?.length) throw new Error("Рабочая папка не открыта в VS Code");
 		return folders[0].uri.fsPath;
 	}
 
-	// Запись содержимого в файл (с созданием директорий при необходимости)
-	async writeFile(filePath: string, content: string): Promise<void> {
-		const workspacePath = this.getWorkspaceFolder();
-		const fullPath = path.join(workspacePath, filePath);
-		// Создаём директорию, если её нет
-		await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
-		// Убираем возможные символы возврата каретки (\r)
-		const normalizedContent = content.replace(/\r\n/g, "\n");
-		// Пишем файл
-		await fs.promises.writeFile(fullPath, normalizedContent, "utf-8");
+	/** Закрыть все прежние «Expo Project» терминалы и создать новый */
+	private createFreshTerminal(): vscode.Terminal {
+		// 1. гасим старые
+		for (const t of vscode.window.terminals) {
+			if (t.name === FileWriter.TERM_NAME) t.dispose();
+		}
+		// 2. открываем новый
+		const term = vscode.window.createTerminal({ name: FileWriter.TERM_NAME });
+		term.show(true);
+		return term;
 	}
 
-	// Установка зависимостей и запуск Expo
-	async installDependenciesAndLaunch(): Promise<void> {
-		const workspacePath = this.getWorkspaceFolder();
-		// Определяем, использовать ли Yarn
-		const useYarn = fs.existsSync(path.join(workspacePath, "yarn.lock"));
-		const installCommand = useYarn ? "yarn install" : "npm install";
-		const expoStartCommand = "npx expo start";
+	// ───────── 1. запись файлов ─────────
+	async writeFile(filePath: string, content: string): Promise<void> {
+		const cwd = this.getWorkspaceFolder();
+		const full = path.join(cwd, filePath);
+		await fs.promises.mkdir(path.dirname(full), { recursive: true });
+		await fs.promises.writeFile(full, content.replace(/\r\n/g, "\n"), "utf8");
+	}
 
-		// Создаём терминал VS Code
-		const terminal = vscode.window.createTerminal({ name: "Expo Project" });
-		terminal.show(true);
-		// Переходим в рабочую директорию
-		terminal.sendText(`cd "${workspacePath}"`);
-		// Устанавливаем зависимости
-		terminal.sendText(installCommand);
-		// Запускаем Expo после установки
-		terminal.sendText(useYarn ? `yarn expo start` : expoStartCommand);
+	// ───────── 2. действия по кнопкам ─────────
+	async installDependencies(): Promise<void> {
+		const cwd = this.getWorkspaceFolder();
+		const useYarn = fs.existsSync(path.join(cwd, "yarn.lock"));
+		const installCmd = useYarn ? "yarn install" : "npm install";
+
+		const term = this.createFreshTerminal();
+		term.sendText(`cd "${cwd}"`);
+		term.sendText(installCmd);
+	}
+
+	async startExpo(): Promise<void> {
+		const cwd = this.getWorkspaceFolder();
+		const term = this.createFreshTerminal();
+		term.sendText(`cd "${cwd}"`);
+		term.sendText("npx expo start");
+	}
+
+	async stopExpo(): Promise<void> {
+		// просто закрываем все наши терминалы; новая вкладка не нужна
+		for (const t of vscode.window.terminals) {
+			if (t.name === FileWriter.TERM_NAME) t.dispose();
+		}
+	}
+
+	async deleteNodeModules(): Promise<void> {
+		const cwd = this.getWorkspaceFolder();
+		const term = this.createFreshTerminal();
+		term.sendText(`cd "${cwd}"`);
+		term.sendText("rm -rf node_modules");
+	}
+
+	/** Back-compat: раньше запускалось автоматически */
+	async installDependenciesAndLaunch(): Promise<void> {
+		await this.installDependencies();
+		await this.startExpo();
 	}
 }

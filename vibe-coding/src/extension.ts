@@ -84,11 +84,39 @@ class VibeCodingViewProvider implements vscode.WebviewViewProvider {
 
 		// сообщения из React-приложения
 		webview.onDidReceiveMessage(async (msg) => {
+			const fileWriter = new FileWriter();
+
 			if (!msg?.type) return;
 
-			if (msg.type === "prompt" && this.promptController) {
-				// pass the selected model through
-				await this.promptController.handlePrompt(msg.value, msg.model);
+			if (msg.type === "prompt") {
+				await this.promptController!.handlePrompt(msg.value, msg.model);
+			}
+
+			if (msg.type === "action") {
+				switch (msg.action) {
+					case "installDeps":
+						await fileWriter.installDependencies();
+						webview.postMessage({
+							type: "status",
+							message: "Dependencies installing…",
+						});
+						break;
+					case "startExpo":
+						await fileWriter.startExpo();
+						webview.postMessage({ type: "status", message: "Expo started." });
+						break;
+					case "stopExpo":
+						await fileWriter.stopExpo();
+						webview.postMessage({ type: "status", message: "Expo stopped." });
+						break;
+					case "deleteNodeModules":
+						await fileWriter.deleteNodeModules();
+						webview.postMessage({
+							type: "status",
+							message: "node_modules removed.",
+						});
+						break;
+				}
 			}
 		});
 	}
