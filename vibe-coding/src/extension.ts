@@ -77,7 +77,7 @@ class VibeCodingViewProvider implements vscode.WebviewViewProvider {
 
 		this.promptController = new PromptController(
 			new ProjectState(),
-			new ClaudeClient(apiKey),
+			new ClaudeClient(""),
 			new FileWriter(),
 			webviewView // передаём WebView для сообщений
 		);

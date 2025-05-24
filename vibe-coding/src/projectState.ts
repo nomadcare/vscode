@@ -1,29 +1,25 @@
+// File: projectState.ts
 export interface Message {
 	role: "user" | "assistant";
 	content: string;
 }
 
 export class ProjectState {
-	// История диалога с Claude
-	private conversation: Message[] = [];
+	private messages: Message[] = [];
 
-	// Добавить сообщение пользователя в историю
-	addUserMessage(content: string) {
-		this.conversation.push({ role: "user", content });
+	addUserMessage(text: string) {
+		this.messages.push({ role: "user", content: text });
 	}
 
-	// Добавить сообщение ассистента (Claude) в историю
-	addAssistantMessage(content: string) {
-		this.conversation.push({ role: "assistant", content });
+	addAssistantMessage(text: string) {
+		this.messages.push({ role: "assistant", content: text });
 	}
 
-	// Получить всю историю сообщений (для нового запроса к модели)
-	getConversation(): Message[] {
-		return this.conversation;
+	getConversation() {
+		return this.messages;
 	}
 
-	// Очистить историю (например, для новой сессии/проекта)
 	reset() {
-		this.conversation = [];
+		this.messages = [];
 	}
 }

@@ -1,4 +1,5 @@
 // File: claudeClient.ts
+
 import fetch from "node-fetch";
 import { Message } from "./projectState";
 
@@ -6,17 +7,12 @@ const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
 
 const MODEL_TOKEN_LIMITS: Record<string, number> = {
-	"claude-3-5-haiku-20241022": 8192, // лимит токенов для Haiku
-	"claude-3-7-sonnet-20250219": 10000, // лимит токенов для Sonnet
+	"claude-3-5-haiku-20241022": 8192,
+	"claude-3-7-sonnet-20250219": 10000,
 };
 
 /**
- * СИСТЕМНЫЙ ПРОМПТ
- *
- * Логику и перечень файлов оставили прежними, но добавили строгое требование:
- * 1. Открывающая тройная кавычка с указанием языка ДОЛЖНА быть на отдельной строке.
- * 2. Сразу после неё — перевод строки и строка `// File: <имя_файла>`.
- * 3. Запрещено писать `// File:` на той же строке, что и ```.
+ * Оригинальный SYSTEM_PROMPT — полная версия:
  */
 const SYSTEM_PROMPT = [
 	"Ты — ассистент по генерации проектов Expo (React Native).",
@@ -33,9 +29,9 @@ const SYSTEM_PROMPT = [
 	"- Папку assets с placeholder-заглушками icon.png и splash.png",
 	"Если пользователь указывает дополнительные файлы или папки — добавь их тоже.",
 	"",
-	"⚠️ **ВАЖНО**: формат каждого блока кода _обязателен_. Открывающая строка с ```<язык> стоит ОТДЕЛЬНО,",
-	"затем перевод строки, затем **на новой строке** `// File: <имя_файла>` (или `// Folder:`).",
-	"Никогда не ставь `// File:` на той же строке, что и ```.",
+	"⚠️ **ВАЖНО**: формат каждого блока кода _обязателен_. Открывающая тройная кавычка с указанием языка ДОЛЖНА быть на отдельной строке.",
+	"Затем перевод строки и строка `// File: <имя_файла>` (или `// Folder: <имя_папки>`).",
+	"Никогда не ставь `// File:` на той же строке, что и ```. ",
 	"",
 	"Пример правильного файла:",
 	"```javascript",
@@ -56,7 +52,10 @@ const SYSTEM_PROMPT = [
 	"```",
 	"",
 	"Никаких пояснений вне этих Markdown-блоков.",
-].join(" ");
+	"🔄 **Если пользователь позже просит изменить проект, генерируй ТОЛЬКО",
+	"те файлы, которые реально изменились или новые; не пересоздавай то,",
+	"что уже существует без изменений.**",
+].join("\n");
 
 export class ClaudeClient {
 	private apiKey?: string;
@@ -68,19 +67,21 @@ export class ClaudeClient {
 	async sendMessageStream(
 		messages: Message[],
 		model: string,
-		onData: (partialText: string) => void
+		onData: (partialText: string) => void,
+		systemPromptOverride?: string
 	): Promise<string> {
 		if (!this.apiKey) {
 			throw new Error("API ключ Claude не задан.");
 		}
 
 		const maxTokens = MODEL_TOKEN_LIMITS[model] ?? 8192;
+		const prompt = systemPromptOverride ?? SYSTEM_PROMPT;
 
 		const payload = {
 			model,
 			messages: messages.map((m) => ({ role: m.role, content: m.content })),
 			max_tokens: maxTokens,
-			system: SYSTEM_PROMPT,
+			system: prompt,
 			stream: true,
 		};
 
@@ -95,51 +96,45 @@ export class ClaudeClient {
 		});
 
 		if (!resp.ok) {
-			const errText = await resp.text();
-			throw new Error(`Ошибка API Claude: ${resp.status} – ${errText}`);
+			const text = await resp.text();
+			throw new Error(`Claude API error ${resp.status}: ${text}`);
 		}
 		if (!resp.body) {
 			throw new Error("Пустой поток ответа от Claude.");
 		}
 
-		// === Чтение стрима ===
-		const stream = resp.body as unknown as AsyncIterable<Uint8Array>;
 		const decoder = new TextDecoder();
-		let buf = "";
+		let buffer = "";
 		let full = "";
 
-		for await (const chunk of stream) {
-			buf += decoder.decode(chunk, { stream: true });
-			const lines = buf.split("\n");
-			buf = lines.pop()!;
+		for await (const chunk of resp.body as unknown as AsyncIterable<Uint8Array>) {
+			buffer += decoder.decode(chunk, { stream: true });
+			const lines = buffer.split("\n");
+			buffer = lines.pop()!;
 
 			for (const line of lines) {
-				const t = line.trim();
-				if (!t.startsWith("data:")) continue;
-				const payload = t.replace(/^data:\s*/, "");
-				if (payload === "[DONE]") continue;
-
+				if (!line.trim().startsWith("data:")) continue;
+				const dataStr = line.replace(/^data:\s*/, "");
+				if (dataStr === "[DONE]") continue;
 				try {
-					const data = JSON.parse(payload);
+					const data = JSON.parse(dataStr);
 					if (
 						data.type === "content_block_delta" &&
-						data.delta?.type === "text_delta"
+						data.delta?.type === "text_delta" &&
+						data.delta.text
 					) {
-						const text = data.delta.text;
-						if (text) {
-							full += text;
-							onData(text);
-						}
+						const txt = data.delta.text;
+						full += txt;
+						onData(txt);
 					}
 					if (data.type === "message_stop") {
 						return full;
 					}
-				} catch (e) {
-					console.error("Error parse JSON:", e, payload);
+				} catch {
+					// ignore parse errors
 				}
 			}
 		}
-
 		return full;
 	}
 }
