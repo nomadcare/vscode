@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import styled, { ThemeProvider, createGlobalStyle } from "styled-components";
+import styled, {
+	ThemeProvider,
+	createGlobalStyle,
+	css,
+} from "styled-components";
 import { motion, AnimatePresence } from "framer-motion";
 import {
 	Plus,
@@ -10,6 +14,10 @@ import {
 	Send,
 	Activity,
 	Code,
+	Play,
+	Square,
+	Trash,
+	Info,
 } from "lucide-react";
 import { theme } from "../webview/theme";
 import { supabase } from "./supabaseClient";
@@ -58,6 +66,7 @@ export default function App() {
 	const [user, setUser] = useState<any>(null);
 	const [authError, setAuthError] = useState<string | null>(null);
 	const [loadingAuth, setLoadingAuth] = useState(false);
+	const [processing, setProcessing] = useState(false);
 
 	// --- Chat state ---
 	const [chats, setChats] = useState<Chat[]>([
@@ -85,6 +94,27 @@ export default function App() {
 				behavior: "smooth",
 			});
 		}, 50);
+	};
+
+	/* ----------------------------------------------------------------
+	 * handleSend: блокируем повторную отправку и включаем processing
+	 * -------------------------------------------------------------- */
+	const handleSend = () => {
+		if (!input.trim() || processing) return; // <— NEW защитa от дабл-кликов
+		setProcessing(true); // <— NEW
+		appendMessage(
+			"user",
+			<>
+				<b>User:</b> {input}
+			</>
+		);
+		vscode.postMessage({
+			type: "prompt",
+			value: input,
+			model: modelMap[selectedModel],
+		});
+		setInput("");
+		setModelMenuOpen(false);
 	};
 
 	const appendMessage = useCallback(
@@ -210,8 +240,10 @@ export default function App() {
 				case "done":
 					appendMessage("agent", <b>{msg.message}</b>);
 					streamRef.current = null;
+					setProcessing(false);
 					break;
 				case "error":
+					setProcessing(false);
 					appendMessage(
 						"agent",
 						<>
@@ -225,23 +257,6 @@ export default function App() {
 		window.addEventListener("message", handler);
 		return () => window.removeEventListener("message", handler);
 	}, [appendMessage]);
-
-	const handleSend = () => {
-		if (!input.trim()) return;
-		appendMessage(
-			"user",
-			<>
-				<b>User:</b> {input}
-			</>
-		);
-		vscode.postMessage({
-			type: "prompt",
-			value: input,
-			model: modelMap[selectedModel],
-		});
-		setInput("");
-		setModelMenuOpen(false);
-	};
 
 	const current = modelOptions.find((o) => o.id === selectedModel)!;
 
@@ -273,25 +288,35 @@ export default function App() {
 			</>
 		);
 	}
+	/* … после if (!user) { … }  */
 
 	return (
 		<>
 			<GlobalStyle />
 			<ThemeProvider theme={theme}>
 				<Root>
+					{/* ---------- ЛЕВАЯ ПАНЕЛЬ ---------- */}
 					<Sidebar>
-						<IconBtn title="New Chat">
-							<Plus size={20} />
-						</IconBtn>
-						<IconBtn title="All Chats">
-							<MenuIcon size={20} />
-						</IconBtn>
+						<Tip text="Новый чат">
+							<IconBtn title="New Chat">
+								<Plus size={20} />
+							</IconBtn>
+						</Tip>
+
+						<Tip text="Список чатов">
+							<IconBtn title="All Chats">
+								<MenuIcon size={20} />
+							</IconBtn>
+						</Tip>
 					</Sidebar>
+
+					{/* ---------- ОСНОВНАЯ ОБЛАСТЬ ---------- */}
 					<Main>
+						{/* ---- Хедер ---- */}
 						<Header>
-							Home Search Platform
+							Home&nbsp;Search&nbsp;Platform
 							<UserInfo>
-								Logged in as {user.email}
+								Logged in as&nbsp;{user.email}
 								<LogoutButton onClick={handleLogout}>Logout</LogoutButton>
 							</UserInfo>
 							{activeFileName && (
@@ -301,6 +326,8 @@ export default function App() {
 								</ActiveFile>
 							)}
 						</Header>
+
+						{/* ---- Чат ---- */}
 						<ChatBox ref={chatRef}>
 							<AnimatePresence initial={false}>
 								{chats.map((m) => (
@@ -324,32 +351,112 @@ export default function App() {
 								))}
 							</AnimatePresence>
 						</ChatBox>
-						<InputWrapper>
+
+						{/* ---- Инпут + кнопки ---- */}
+						<InputWrapper $dimmed={processing}>
+							{/* затемняющий оверлей во время обработки */}
+							{processing && (
+								<ProcessingOverlay
+									as={motion.div}
+									initial={{ opacity: 0 }}
+									animate={{ opacity: 1 }}
+									exit={{ opacity: 0 }}
+								>
+									<Spinner className="spinner" /> Processing…
+								</ProcessingOverlay>
+							)}
+
+							{/* строка ввода */}
 							<InputBar>
 								<MessageInput
 									placeholder="Type a message…"
 									value={input}
 									onChange={(e) => setInput(e.target.value)}
 									onKeyDown={(e) => e.key === "Enter" && handleSend()}
+									disabled={processing}
 								/>
 							</InputBar>
+
+							{/* панель действий */}
 							<ButtonBar>
 								<Chips>
 									<ActionChip title="Upload Image">
 										<Camera size={16} />
 									</ActionChip>
+
+									<Tip text="Install Dependencies (npm i)">
+										<ActionChip
+											onClick={() =>
+												vscode.postMessage({
+													type: "action",
+													action: "installDeps",
+												})
+											}
+										>
+											<Activity size={16} /> Install
+										</ActionChip>
+									</Tip>
+
+									<Tip text="Launch Expo Dev Server">
+										<ActionChip
+											onClick={() =>
+												vscode.postMessage({
+													type: "action",
+													action: "startExpo",
+												})
+											}
+										>
+											<Play size={16} /> Start
+										</ActionChip>
+									</Tip>
+
+									<Tip text="Stop Expo Dev Server">
+										<ActionChip
+											onClick={() =>
+												vscode.postMessage({
+													type: "action",
+													action: "stopExpo",
+												})
+											}
+										>
+											<Square size={16} /> Stop
+										</ActionChip>
+									</Tip>
+
+									<Tip text="Delete node_modules folder">
+										<ActionChip
+											onClick={() =>
+												vscode.postMessage({
+													type: "action",
+													action: "deleteNodeModules",
+												})
+											}
+										>
+											<Trash size={16} /> Clean&nbsp;libs
+										</ActionChip>
+									</Tip>
+
+									{/* -------- Выбор модели -------- */}
 									<ModelSelector>
-										<ModelButton onClick={() => setModelMenuOpen((o) => !o)}>
-											<current.icon size={16} />
-											<ModelLabel>{current.name}</ModelLabel>
-											{modelMenuOpen ? (
-												<ChevronUp size={16} />
-											) : (
-												<ChevronDown size={16} />
-											)}
-										</ModelButton>
+										<Tip text="Chose ai model">
+											<ModelButton onClick={() => setModelMenuOpen((o) => !o)}>
+												<current.icon size={16} />
+												<ModelLabel>{current.name}</ModelLabel>
+												{modelMenuOpen ? (
+													<ChevronUp size={16} />
+												) : (
+													<ChevronDown size={16} />
+												)}
+											</ModelButton>
+										</Tip>
+
 										{modelMenuOpen && (
-											<Dropdown>
+											<Dropdown
+												as={motion.div}
+												initial={{ opacity: 0, y: 4 }}
+												animate={{ opacity: 1, y: 0 }}
+												exit={{ opacity: 0, y: 4 }}
+											>
 												<DropdownHeader>AI Model</DropdownHeader>
 												{modelOptions.map((o) => (
 													<Option
@@ -374,9 +481,19 @@ export default function App() {
 										)}
 									</ModelSelector>
 								</Chips>
+
+								{/* ---- кнопка Send ---- */}
 								<Actions>
-									<SendButton onClick={handleSend} title="Send">
-										<Send size={18} />
+									<SendButton
+										onClick={handleSend}
+										title="Send"
+										disabled={processing}
+									>
+										{processing ? (
+											<Spinner className="spinner" />
+										) : (
+											<Send size={18} />
+										)}
 									</SendButton>
 								</Actions>
 							</ButtonBar>
@@ -389,6 +506,84 @@ export default function App() {
 }
 
 // Styled components
+/* ------------------------------------------------------------------ */
+/* 3. Tooltip компонент + стили                                       */
+/* ------------------------------------------------------------------ */
+const Tip: React.FC<{ text: string; children: React.ReactNode }> = ({
+	text,
+	children,
+}) => {
+	const [open, setOpen] = useState(false);
+	return (
+		<TipWrap
+			onMouseEnter={() => setOpen(true)}
+			onMouseLeave={() => setOpen(false)}
+			onFocus={() => setOpen(true)}
+			onBlur={() => setOpen(false)}
+		>
+			{children}
+			<AnimatePresence>
+				{open && (
+					<TipBubble
+						as={motion.div}
+						initial={{ opacity: 0, y: 4, scale: 0.95 }}
+						animate={{ opacity: 1, y: 0, scale: 1 }}
+						exit={{ opacity: 0, y: 4, scale: 0.95 }}
+						transition={{ type: "spring", stiffness: 350, damping: 25 }}
+					>
+						{text}
+					</TipBubble>
+				)}
+			</AnimatePresence>
+		</TipWrap>
+	);
+};
+
+const TipWrap = styled.span`
+	position: relative;
+	display: inline-block; /* чтобы ширина = ширина кнопки */
+`;
+
+const TipBubble = styled.div`
+	position: absolute;
+	bottom: 100%; /* выровняли верх пузыря по верху TipWrap */
+	left: 0%; /* точка отсчёта — середина TipWrap */
+	margin-bottom: 8px; /* отступ над кнопкой */
+	transform: translateX(
+		-50%
+	); /* сдвигаем назад на половину ширины самого пузыря */
+	white-space: nowrap;
+	padding: 6px 10px;
+	font-size: 13px;
+	font-weight: 500;
+	background: ${({ theme }) => theme.colors.fg};
+	color: ${({ theme }) => theme.colors.bg};
+	border-radius: 8px;
+	pointer-events: none;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+	z-index: 50;
+`;
+
+const Spinner = styled(Info)`
+	/* минимальный спиннер-иконка */
+	animation: spin 0.8s linear infinite;
+`;
+
+const ProcessingOverlay = styled.div`
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	font-size: 15px;
+	font-weight: 500;
+	background: rgba(0, 0, 0, 0.25);
+	color: #fff;
+	backdrop-filter: blur(4px);
+	border-radius: 16px;
+`;
+
 const AuthContainer = styled.div`
 	display: flex;
 	flex-direction: column;
@@ -522,13 +717,23 @@ const Bubble = styled.div<{ sender: string }>`
 	border-radius: 16px;
 	line-height: 1.5;
 `;
-const InputWrapper = styled.div`
+const InputWrapper = styled.div<{ $dimmed?: boolean }>`
 	margin: 16px 24px;
 	background: ${({ theme }) => theme.colors.bgAlt};
 	border: 1px solid ${({ theme }) => theme.colors.border};
 	border-radius: 16px;
 	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+	position: relative;
+
+	/* опционально: визуально «гасим» блок во время обработки */
+	${({ $dimmed }) =>
+		$dimmed &&
+		css`
+			opacity: 0.6;
+			pointer-events: none;
+		`}
 `;
+
 const InputBar = styled.div`
 	display: flex;
 	align-items: center;
