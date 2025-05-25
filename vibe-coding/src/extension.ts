@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { readFileSync } from "fs";
 import { join } from "path";
+import QRCode from "qrcode";
 
 import { ProjectState } from "./projectState";
 import { ClaudeClient } from "./claudeClient";
@@ -17,7 +18,6 @@ export function activate(ctx: vscode.ExtensionContext) {
 	);
 	vscode.commands.executeCommand("workbench.view.extension.vibeCoding");
 
-	// отдельная команда (если нужна): просто раскрываем сайдбар
 	ctx.subscriptions.push(
 		vscode.commands.registerCommand("expoClaude.start", () => {
 			vscode.commands.executeCommand("workbench.view.extension.vibeCoding");
@@ -65,7 +65,6 @@ class VibeCodingViewProvider implements vscode.WebviewViewProvider {
 				webview.asWebviewUri(vscode.Uri.file(scriptPath)).toString()
 			);
 
-		// ─── Новая бизнес-логика ──────────────────────────────
 		const apiKey =
 			vscode.workspace
 				.getConfiguration()
@@ -79,13 +78,11 @@ class VibeCodingViewProvider implements vscode.WebviewViewProvider {
 			new ProjectState(),
 			new ClaudeClient(""),
 			new FileWriter(),
-			webviewView // передаём WebView для сообщений
+			webviewView
 		);
 
-		// сообщения из React-приложения
 		webview.onDidReceiveMessage(async (msg) => {
 			const fileWriter = new FileWriter();
-
 			if (!msg?.type) return;
 
 			if (msg.type === "prompt") {
@@ -101,10 +98,14 @@ class VibeCodingViewProvider implements vscode.WebviewViewProvider {
 							message: "Dependencies installing…",
 						});
 						break;
-					case "startExpo":
-						await fileWriter.startExpo();
-						webview.postMessage({ type: "status", message: "Expo started." });
+					case "startExpo": {
+						// start Expo and generate QR
+						const hostUri = await fileWriter.startExpo();
+						const img = await QRCode.toDataURL("exp://" + hostUri);
+						console.log(hostUri);
+						webview.postMessage({ type: "expoQr", url: hostUri, img });
 						break;
+					}
 					case "stopExpo":
 						await fileWriter.stopExpo();
 						webview.postMessage({ type: "status", message: "Expo stopped." });

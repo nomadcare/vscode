@@ -35,7 +35,7 @@ type Chat = {
 };
 
 const modelOptions = [
-	{ id: "sonnet-3.7", name: "Sonnet 3.7", icon: Activity, desc: "Best model" },
+	{ id: "sonnet-4", name: "Sonnet 4", icon: Activity, desc: "Best model" },
 	{
 		id: "sonnet-3.5",
 		name: "Haiku 3.5",
@@ -46,7 +46,7 @@ const modelOptions = [
 
 // Mapping between UI model IDs and backend model identifiers
 const modelMap: Record<string, string> = {
-	"sonnet-3.7": "claude-3-7-sonnet-20250219",
+	"sonnet-4": "claude-sonnet-4-20250514",
 	"sonnet-3.5": "claude-3-5-haiku-20241022",
 };
 
@@ -237,11 +237,40 @@ export default function App() {
 						);
 					}
 					break;
+				/* ------- новый тип assistantRecommendation ------- */
+				case "assistantRecommendation":
+					appendMessage("agent", <b>{msg.content}</b>);
+					break;
+
+				/* ---------- существующий done ---------- */
 				case "done":
 					appendMessage("agent", <b>{msg.message}</b>);
 					streamRef.current = null;
 					setProcessing(false);
 					break;
+				case "expoQr": {
+					// что пришло от бекенда?
+					const { url, img, svg } = msg;
+
+					appendMessage(
+						"agent",
+						<Container>
+							{/* SVG render */}
+							{svg && <QRContainer dangerouslySetInnerHTML={{ __html: svg }} />}
+
+							{/* PNG dataURL */}
+							{img && <QRImage src={img} alt="Expo QR" />}
+
+							{/* URL and call-to-action */}
+							<Big>{`exp://${url}`}</Big>
+
+							<Heading>Scan QR with your phone</Heading>
+							<Subtext>Expo Go will launch your app</Subtext>
+						</Container>
+					);
+
+					break;
+				}
 				case "error":
 					setProcessing(false);
 					appendMessage(
@@ -314,7 +343,7 @@ export default function App() {
 					<Main>
 						{/* ---- Хедер ---- */}
 						<Header>
-							Home&nbsp;Search&nbsp;Platform
+							Hello World App
 							<UserInfo>
 								Logged in as&nbsp;{user.email}
 								<LogoutButton onClick={handleLogout}>Logout</LogoutButton>
@@ -538,6 +567,74 @@ const Tip: React.FC<{ text: string; children: React.ReactNode }> = ({
 		</TipWrap>
 	);
 };
+
+const Container = styled.div`
+	max-width: 400px;
+	margin: 20px auto;
+	background-color: #ffffff;
+	border-radius: 16px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+	padding: 24px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 16px;
+	font-family: Arial, sans-serif;
+`;
+
+const QRContainer = styled.div`
+	width: 300px;
+	height: 300px;
+`;
+
+const QRImage = styled.img`
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	border-radius: 8px;
+	box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+`;
+
+const Big = styled.code`
+	font-size: 16px;
+	color: "white" /* «тёмный» цвет для URL-а */
+	text-align: center;
+	word-break: break-all;
+	width: 100%;
+`;
+
+const Heading = styled.h3`
+	font-size: 18px;
+	font-weight: 600;
+	color: #333333;
+	margin: 0;
+	text-align: center;
+`;
+
+const Highlight = styled.span`
+	color: #805ad5;
+`;
+
+const Subtext = styled.p`
+	font-size: 14px;
+	color: #555555;
+	margin: 4px 0 0;
+	text-align: center;
+`;
+
+const Button = styled.a`
+	margin-top: 16px;
+	padding: 10px 20px;
+	background-color: #6b46c1;
+	color: #ffffff;
+	font-size: 14px;
+	font-weight: 500;
+	border: none;
+	border-radius: 24px;
+	cursor: pointer;
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+	text-decoration: none;
+`;
 
 const TipWrap = styled.span`
 	position: relative;
