@@ -5,12 +5,12 @@
 		<meta
 			http-equiv="Content-Security-Policy"
 			content="
-        default-src 'none';
-        script-src 'nonce-${nonce}' ${cspSource};
-        style-src 'unsafe-inline' ${cspSource};
-        img-src ${cspSource} https:;
-        connect-src https://dkngnjhqfbdecfmdkdhb.supabase.co https://*.supabase.co ${cspSource};
-      "
+    default-src 'none';
+    script-src 'nonce-${nonce}' ${cspSource};
+    style-src 'unsafe-inline' ${cspSource};
+    img-src ${cspSource} https: data:;
+    connect-src https://dkngnjhqfbdecfmdkdhb.supabase.co https://*.supabase.co ${cspSource};
+  "
 		/>
 		<meta name="viewport" content="width=device-width,initial-scale=1" />
 		<title>Vibe Coding</title>

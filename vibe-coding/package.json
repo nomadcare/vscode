@@ -50,7 +50,9 @@
     "start": "expo start"
   },
   "devDependencies": {
+    "@types/kill-port": "^2.0.3",
     "@types/node": "^14.18.63",
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^19.1.4",
     "@types/react-dom": "^19.1.5",
     "@types/vscode": "^1.37.0",
@@ -63,7 +65,9 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.49.8",
     "framer-motion": "^12.11.3",
+    "kill-port": "^2.0.1",
     "lucide-react": "^0.510.0",
+    "qrcode": "^1.5.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "styled-components": "^6.1.18"
