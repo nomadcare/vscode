@@ -1,4 +1,3 @@
-// File: src/promptController.ts
 import * as vscode from "vscode";
 import { ProjectState } from "./projectState";
 import { ClaudeClient } from "./claudeClient";
@@ -49,9 +48,27 @@ export class PromptController {
 			const projectCode = await this.snapshot.collect();
 			systemOverride = [
 				"Ты — ассистент по генерации проектов Expo (React Native).",
-				"Ниже полный код текущего проекта. Меняй ТОЛЬКО те файлы, которые действительно изменяются; не пересоздавай без необходимости.",
+				"Ниже полный код текущего проекта.",
+				"Меняй ТОЛЬКО те файлы, которые действительно изменяются или добавляются; не пересоздавай без необходимости.",
+				"",
+				"⚠️ Если пользователь захочет что-то исправить или прямо попросит тебя внести изменения, исправляй то, что нужно, и полностью пересоздавай именно этот файл/файлы",
+				"",
 				"Если пользователь просит добавить изображения, отличные от стандартных placeholders icon.png и splash.png, указывай их как абсолютные URL-адреса (http/https) на внешние картинки и не сохраняй в assets.",
-				"Если по коду ты даешь логику с новыми библиотеками дабавляй их в package.json. Перед установкой проверяй их совместимоть!",
+				"",
+				"Если по коду ты добавляешь логику с новыми библиотеками — добавляй их обязательно в package.json. Перед установкой проверяй их совместимость!",
+				"",
+				"Формат каждого блока кода _обязателен_.",
+				"Открывающая тройная кавычка с указанием языка ДОЛЖНА быть на отдельной строке.",
+				"",
+				"Правила оформления файлов и папок:",
+				"```javascript",
+				"// File: имя_файла",
+				"содержимое файла",
+				"```",
+				"",
+				"```text",
+				"// Folder: имя_папки",
+				"```",
 				"",
 				"Текущий проект:",
 				projectCode,
@@ -62,6 +79,13 @@ export class PromptController {
 		const messages = isFirst
 			? this.projectState.getConversation()
 			: [{ role: "user" as const, content: prompt }];
+
+		// Debug logging
+		console.log("[PromptController] Sending to agent with model:", model);
+		console.log("[PromptController] Messages:", messages);
+		if (systemOverride) {
+			console.log("[PromptController] System Override set:", systemOverride);
+		}
 
 		try {
 			// 6. стримим
@@ -89,12 +113,18 @@ export class PromptController {
 	 * Принимает порции стрима, парсит и сохраняет файлы
 	 */
 	private async processStreamedText(chunk: string) {
+		// Debug logging of chunks
+		console.log("[PromptController] Received chunk:", chunk);
 		this.buffer += chunk;
 
 		// 1) ловим начало файла
 		const headerRe = /```[\w-]*\s*\n\/\/\s*File:\s*(.+?)\r?\n/;
 		const headerMatch = headerRe.exec(chunk);
 		if (headerMatch) {
+			console.log(
+				"[PromptController] Detected start of file:",
+				headerMatch[1].trim()
+			);
 			this.view.webview.postMessage({
 				type: "fileStart",
 				file: headerMatch[1].trim(),
@@ -120,7 +150,7 @@ export class PromptController {
 				fileName = `${fileName}.${ext}`;
 			}
 
-			// сохраняем файл
+			console.log("[PromptController] Saving file:", fileName);
 			this.view.webview.postMessage({ type: "fileEnd", file: fileName });
 			await this.fileWriter.writeFile(fileName, content);
 			this.view.webview.postMessage({ type: "fileSaved", file: fileName });
