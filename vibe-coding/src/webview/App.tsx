@@ -81,6 +81,25 @@ export default function App() {
 	const [selectedModel, setSelectedModel] = useState(modelOptions[0].id);
 	const [activeFileName, setActiveFileName] = useState("");
 
+	const [appName, setAppName] = useState<string>(""); // ← новый
+	const [appVersion, setAppVersion] = useState<string>(""); // ← новый
+
+	// слушаем сообщение от расширения
+	useEffect(() => {
+		// 1) Навешиваем обработчик входящих сообщений
+		const handler = (e: MessageEvent) => {
+			const msg = e.data;
+			if (msg?.type === "appInfo") {
+				setAppName(msg.name);
+				setAppVersion(msg.version);
+			}
+		};
+		window.addEventListener("message", handler);
+		// запросим appInfo
+		vscode.postMessage({ type: "getActiveFile" });
+		return () => window.removeEventListener("message", handler);
+	}, []);
+
 	const chatRef = useRef<HTMLDivElement>(null);
 	const streamRef = useRef<{ id: string; lines: React.ReactNode[] } | null>(
 		null
@@ -326,13 +345,12 @@ export default function App() {
 				<Root>
 					{/* ---------- ЛЕВАЯ ПАНЕЛЬ ---------- */}
 					<Sidebar>
-						<Tip text="Новый чат">
+						<Tip text="New Chat">
 							<IconBtn title="New Chat">
 								<Plus size={20} />
 							</IconBtn>
 						</Tip>
-
-						<Tip text="Список чатов">
+						<Tip text="All Chats">
 							<IconBtn title="All Chats">
 								<MenuIcon size={20} />
 							</IconBtn>
@@ -343,7 +361,9 @@ export default function App() {
 					<Main>
 						{/* ---- Хедер ---- */}
 						<Header>
-							Hello World App
+							<Title>
+								{appName || ""} <Version>{appVersion || ""}</Version>
+							</Title>
 							<UserInfo>
 								Logged in as&nbsp;{user.email}
 								<LogoutButton onClick={handleLogout}>Logout</LogoutButton>
@@ -383,7 +403,6 @@ export default function App() {
 
 						{/* ---- Инпут + кнопки ---- */}
 						<InputWrapper $dimmed={processing}>
-							{/* затемняющий оверлей во время обработки */}
 							{processing && (
 								<ProcessingOverlay
 									as={motion.div}
@@ -395,7 +414,61 @@ export default function App() {
 								</ProcessingOverlay>
 							)}
 
-							{/* строка ввода */}
+							{/* ─── Верхняя линия + Upload + селектор модели ─── */}
+							<TopBar>
+								<Chips>
+									<Tip text="Upload Image">
+										<ActionChip title="Upload Image">
+											<Camera size={16} />
+										</ActionChip>
+									</Tip>
+
+									<ModelSelector>
+										<Tip text="Choose AI Model">
+											<ModelButton onClick={() => setModelMenuOpen((o) => !o)}>
+												<current.icon size={16} />
+												<ModelLabel>{current.name}</ModelLabel>
+												{modelMenuOpen ? (
+													<ChevronUp size={16} />
+												) : (
+													<ChevronDown size={16} />
+												)}
+											</ModelButton>
+										</Tip>
+										{modelMenuOpen && (
+											<Dropdown
+												as={motion.div}
+												initial={{ opacity: 0, y: 4 }}
+												animate={{ opacity: 1, y: 0 }}
+												exit={{ opacity: 0, y: 4 }}
+											>
+												<DropdownHeader>AI Model</DropdownHeader>
+												{modelOptions.map((o) => (
+													<Option
+														key={o.id}
+														selected={o.id === selectedModel}
+														onClick={() => {
+															setSelectedModel(o.id);
+															setModelMenuOpen(false);
+														}}
+													>
+														<IconWrapper>
+															<o.icon size={18} />
+														</IconWrapper>
+														<TextGroup>
+															<OptionTitle>{o.name}</OptionTitle>
+															<OptionDesc>{o.desc}</OptionDesc>
+														</TextGroup>
+														{o.id === selectedModel && <CheckDot />}
+													</Option>
+												))}
+											</Dropdown>
+										)}
+									</ModelSelector>
+								</Chips>
+							</TopBar>
+
+							{/* ─── Само текстовое поле ─── */}
 							<InputBar>
 								<MessageInput
 									placeholder="Type a message…"
@@ -406,14 +479,10 @@ export default function App() {
 								/>
 							</InputBar>
 
-							{/* панель действий */}
+							{/* ─── Нижняя линия + остальные ActionChip + Send ─── */}
 							<ButtonBar>
 								<Chips>
-									<ActionChip title="Upload Image">
-										<Camera size={16} />
-									</ActionChip>
-
-									<Tip text="Install Dependencies (npm i)">
+									<Tip text="Install dependencies (npm i)">
 										<ActionChip
 											onClick={() =>
 												vscode.postMessage({
@@ -461,63 +530,12 @@ export default function App() {
 												})
 											}
 										>
-											<Trash size={16} /> Clean&nbsp;libs
+											<Trash size={16} /> Clean libs
 										</ActionChip>
 									</Tip>
-
-									{/* -------- Выбор модели -------- */}
-									<ModelSelector>
-										<Tip text="Chose ai model">
-											<ModelButton onClick={() => setModelMenuOpen((o) => !o)}>
-												<current.icon size={16} />
-												<ModelLabel>{current.name}</ModelLabel>
-												{modelMenuOpen ? (
-													<ChevronUp size={16} />
-												) : (
-													<ChevronDown size={16} />
-												)}
-											</ModelButton>
-										</Tip>
-
-										{modelMenuOpen && (
-											<Dropdown
-												as={motion.div}
-												initial={{ opacity: 0, y: 4 }}
-												animate={{ opacity: 1, y: 0 }}
-												exit={{ opacity: 0, y: 4 }}
-											>
-												<DropdownHeader>AI Model</DropdownHeader>
-												{modelOptions.map((o) => (
-													<Option
-														key={o.id}
-														selected={o.id === selectedModel}
-														onClick={() => {
-															setSelectedModel(o.id);
-															setModelMenuOpen(false);
-														}}
-													>
-														<IconWrapper>
-															<o.icon size={18} />
-														</IconWrapper>
-														<TextGroup>
-															<OptionTitle>{o.name}</OptionTitle>
-															<OptionDesc>{o.desc}</OptionDesc>
-														</TextGroup>
-														{o.id === selectedModel && <CheckDot />}
-													</Option>
-												))}
-											</Dropdown>
-										)}
-									</ModelSelector>
 								</Chips>
-
-								{/* ---- кнопка Send ---- */}
 								<Actions>
-									<SendButton
-										onClick={handleSend}
-										title="Send"
-										disabled={processing}
-									>
+									<SendButton onClick={handleSend} disabled={processing}>
 										{processing ? (
 											<Spinner className="spinner" />
 										) : (
@@ -567,6 +585,26 @@ const Tip: React.FC<{ text: string; children: React.ReactNode }> = ({
 		</TipWrap>
 	);
 };
+
+const Title = styled.div`
+	font-size: 18px;
+	font-weight: 600;
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+`;
+const Version = styled.span`
+	font-size: 14px;
+	color: ${({ theme }) => theme.colors.accent};
+	font-weight: 500;
+`;
+
+const TopBar = styled.div`
+	display: flex;
+	align-items: center;
+	padding: 12px 16px;
+	border-bottom: 1px solid ${({ theme }) => theme.colors.border};
+`;
 
 const Container = styled.div`
 	max-width: 400px;
@@ -620,20 +658,6 @@ const Subtext = styled.p`
 	color: #555555;
 	margin: 4px 0 0;
 	text-align: center;
-`;
-
-const Button = styled.a`
-	margin-top: 16px;
-	padding: 10px 20px;
-	background-color: #6b46c1;
-	color: #ffffff;
-	font-size: 14px;
-	font-weight: 500;
-	border: none;
-	border-radius: 24px;
-	cursor: pointer;
-	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-	text-decoration: none;
 `;
 
 const TipWrap = styled.span`
