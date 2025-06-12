@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import styled, {
 	ThemeProvider,
@@ -7,576 +8,108 @@ import styled, {
 import { motion, AnimatePresence } from "framer-motion";
 import {
 	Plus,
-	Menu as MenuIcon,
 	Camera,
-	ChevronUp,
 	ChevronDown,
+	ChevronUp,
 	Send,
 	Activity,
 	Code,
 	Play,
 	Square,
 	Trash,
+	Sun,
+	Moon,
 	Info,
+	Lock,
+	Upload,
+	Link as LinkIcon,
+	ExternalLink,
+	Apple,
+	Store,
 } from "lucide-react";
-import { theme } from "../webview/theme";
+import { theme as baseTheme } from "../webview/theme";
 import { supabase } from "./supabaseClient";
 
+/* ---------------- VS Code bridge ---------------- */
 declare const acquireVsCodeApi: any;
-const vscode =
+const vscode: {
+	postMessage: (m: any) => void;
+	getState?: () => any;
+	setState?: (s: any) => void;
+} =
 	typeof acquireVsCodeApi === "function"
 		? acquireVsCodeApi()
-		: { postMessage: (_: any) => {} };
+		: { postMessage: () => {} };
 
-type Chat = {
+/* ---------------- helpers / consts ---------------- */
+interface Chat {
 	id: string;
 	sender: "agent" | "user";
 	content: React.ReactNode;
-};
-
+}
 const modelOptions = [
 	{ id: "sonnet-4", name: "Sonnet 4", icon: Activity, desc: "Best model" },
 	{
 		id: "sonnet-3.5",
 		name: "Haiku 3.5",
 		icon: Code,
-		desc: "For code and design",
+		desc: "For code & design",
 	},
 ];
-
-// Mapping between UI model IDs and backend model identifiers
 const modelMap: Record<string, string> = {
 	"sonnet-4": "claude-sonnet-4-20250514",
 	"sonnet-3.5": "claude-3-5-haiku-20241022",
 };
+const genId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-const generateId = () =>
-	`${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+/* ---- themes ---- */
+const light = {
+	bg: "#fff",
+	bgAlt: "#f5f5f5",
+	fg: "#111",
+	border: "#e2e8f0",
+	accent: "#0066ff",
+	userMsg: "#0066ff",
+};
+const dark = {
+	bg: "#0d1117",
+	bgAlt: "#161b22",
+	fg: "#c9d1d9",
+	border: "#30363d",
+	accent: "#58a6ff",
+	userMsg: "#238636",
+};
+const lightTheme = { ...baseTheme, colors: { ...baseTheme.colors, ...light } };
+const darkTheme = { ...baseTheme, colors: { ...baseTheme.colors, ...dark } };
 
 const GlobalStyle = createGlobalStyle`
-  html, body { margin: 0; padding: 0; width: 100%; height: 100%; }
-  .spinner { animation: spin 0.4s linear infinite; display: inline-block; vertical-align: middle; }
-  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  html,body,#root{margin:0;padding:0;width:100%;height:100%;background:${(p) =>
+		p.theme.colors.bg};color:${(p) => p.theme.colors.fg}}
+  .spinner{animation:spin .4s linear infinite;display:inline-block;}
+  @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 `;
 
-export default function App() {
-	// --- Auth state ---
-	const [email, setEmail] = useState("");
-	const [password, setPassword] = useState("");
-	const [user, setUser] = useState<any>(null);
-	const [authError, setAuthError] = useState<string | null>(null);
-	const [loadingAuth, setLoadingAuth] = useState(false);
-	const [processing, setProcessing] = useState(false);
-
-	// --- Chat state ---
-	const [chats, setChats] = useState<Chat[]>([
-		{
-			id: generateId(),
-			sender: "agent",
-			content: "Hi! I’m your dedicated mobile app development agent...",
-		},
-	]);
-	const [input, setInput] = useState("");
-	const [modelMenuOpen, setModelMenuOpen] = useState(false);
-	const [selectedModel, setSelectedModel] = useState(modelOptions[0].id);
-	const [activeFileName, setActiveFileName] = useState("");
-
-	const [appName, setAppName] = useState<string>(""); // ← новый
-	const [appVersion, setAppVersion] = useState<string>(""); // ← новый
-
-	// слушаем сообщение от расширения
-	useEffect(() => {
-		// 1) Навешиваем обработчик входящих сообщений
-		const handler = (e: MessageEvent) => {
-			const msg = e.data;
-			if (msg?.type === "appInfo") {
-				setAppName(msg.name);
-				setAppVersion(msg.version);
-			}
-		};
-		window.addEventListener("message", handler);
-		// запросим appInfo
-		vscode.postMessage({ type: "getActiveFile" });
-		return () => window.removeEventListener("message", handler);
-	}, []);
-
-	const chatRef = useRef<HTMLDivElement>(null);
-	const streamRef = useRef<{ id: string; lines: React.ReactNode[] } | null>(
-		null
-	);
-
-	// --- Helpers ---
-	const scrollToBottom = () => {
-		setTimeout(() => {
-			chatRef.current?.scrollTo({
-				top: chatRef.current!.scrollHeight,
-				behavior: "smooth",
-			});
-		}, 50);
-	};
-
-	/* ----------------------------------------------------------------
-	 * handleSend: блокируем повторную отправку и включаем processing
-	 * -------------------------------------------------------------- */
-	const handleSend = () => {
-		if (!input.trim() || processing) return; // <— NEW защитa от дабл-кликов
-		setProcessing(true); // <— NEW
-		appendMessage(
-			"user",
-			<>
-				<b>User:</b> {input}
-			</>
-		);
-		vscode.postMessage({
-			type: "prompt",
-			value: input,
-			model: modelMap[selectedModel],
-		});
-		setInput("");
-		setModelMenuOpen(false);
-	};
-
-	const appendMessage = useCallback(
-		(sender: Chat["sender"], content: React.ReactNode) => {
-			setChats((prev) => [...prev, { id: generateId(), sender, content }]);
-			scrollToBottom();
-		},
-		[]
-	);
-
-	// --- Auth handlers ---
-	const handleLogin = useCallback(async () => {
-		setLoadingAuth(true);
-		setAuthError(null);
-		const { data, error } = await supabase.auth.signInWithPassword({
-			email,
-			password,
-		});
-		setLoadingAuth(false);
-		if (error) setAuthError(error.message);
-		else setUser(data.session?.user || null);
-	}, [email, password]);
-
-	const handleLogout = useCallback(async () => {
-		await supabase.auth.signOut();
-		setUser(null);
-	}, []);
-
-	// --- Effects: auth session ---
-	useEffect(() => {
-		supabase.auth
-			.getSession()
-			.then(({ data: { session } }) => setUser(session?.user || null));
-		const { data: listener } = supabase.auth.onAuthStateChange((_, session) =>
-			setUser(session?.user || null)
-		);
-		return () => listener.subscription.unsubscribe();
-	}, []);
-
-	// --- Effects: VSCode messages ---
-	useEffect(() => {
-		vscode.postMessage({ type: "getActiveFile" });
-	}, []);
-
-	useEffect(() => {
-		const handler = (e: MessageEvent) => {
-			const msg = e.data;
-			if (!msg?.type) return;
-			switch (msg.type) {
-				case "activeFile":
-					setActiveFileName(msg.fileName);
-					break;
-				case "status":
-					if (
-						typeof msg.message === "string" &&
-						msg.message.includes("Processing")
-					) {
-						const id = generateId();
-						streamRef.current = {
-							id,
-							lines: [
-								<motion.div
-									key="start"
-									initial={{ opacity: 0 }}
-									animate={{ opacity: 1 }}
-								>
-									<i>{msg.message}</i>
-								</motion.div>,
-							],
-						};
-						setChats((prev) => [
-							...prev,
-							{
-								id,
-								sender: "agent",
-								content: (
-									<StreamBubble>{streamRef.current!.lines}</StreamBubble>
-								),
-							},
-						]);
-						scrollToBottom();
-					} else {
-						appendMessage("agent", <i>{msg.message}</i>);
-					}
-					break;
-				case "fileSaved":
-					if (streamRef.current) {
-						const idx = streamRef.current.lines.length;
-						const line = (
-							<motion.div
-								key={idx}
-								initial={{ opacity: 0 }}
-								animate={{ opacity: 1 }}
-								transition={{ duration: 0.3 }}
-							>
-								✅ <b>{msg.file}</b> saved
-							</motion.div>
-						);
-						streamRef.current.lines.push(line);
-						setChats((prev) =>
-							prev.map((c) =>
-								c.id === streamRef.current!.id
-									? {
-											...c,
-											content: (
-												<StreamBubble>{streamRef.current!.lines}</StreamBubble>
-											),
-									  }
-									: c
-							)
-						);
-						scrollToBottom();
-					} else {
-						appendMessage(
-							"agent",
-							<>
-								{" "}
-								<b>✅ {msg.file}</b> saved{" "}
-							</>
-						);
-					}
-					break;
-				/* ------- новый тип assistantRecommendation ------- */
-				case "assistantRecommendation":
-					appendMessage("agent", <b>{msg.content}</b>);
-					break;
-
-				/* ---------- существующий done ---------- */
-				case "done":
-					appendMessage("agent", <b>{msg.message}</b>);
-					streamRef.current = null;
-					setProcessing(false);
-					break;
-				case "expoQr": {
-					// что пришло от бекенда?
-					const { url, img, svg } = msg;
-
-					appendMessage(
-						"agent",
-						<Container>
-							{/* SVG render */}
-							{svg && <QRContainer dangerouslySetInnerHTML={{ __html: svg }} />}
-
-							{/* PNG dataURL */}
-							{img && <QRImage src={img} alt="Expo QR" />}
-
-							{/* URL and call-to-action */}
-							<Big>{`exp://${url}`}</Big>
-
-							<Heading>Scan QR with your phone</Heading>
-							<Subtext>Expo Go will launch your app</Subtext>
-						</Container>
-					);
-
-					break;
-				}
-				case "error":
-					setProcessing(false);
-					appendMessage(
-						"agent",
-						<>
-							{" "}
-							<b>Ошибка:</b> {msg.message}{" "}
-						</>
-					);
-					break;
-			}
-		};
-		window.addEventListener("message", handler);
-		return () => window.removeEventListener("message", handler);
-	}, [appendMessage]);
-
-	const current = modelOptions.find((o) => o.id === selectedModel)!;
-
-	// --- Render ---
-	if (!user) {
-		return (
-			<>
-				<GlobalStyle />
-				<ThemeProvider theme={theme}>
-					<AuthContainer>
-						{authError && <ErrorText>{authError}</ErrorText>}
-						<Input
-							type="email"
-							placeholder="Email"
-							value={email}
-							onChange={(e) => setEmail(e.target.value)}
-						/>
-						<Input
-							type="password"
-							placeholder="Password"
-							value={password}
-							onChange={(e) => setPassword(e.target.value)}
-						/>
-						<AuthButton onClick={handleLogin} disabled={loadingAuth}>
-							{loadingAuth ? <span className="spinner">⏳</span> : "Login"}
-						</AuthButton>
-					</AuthContainer>
-				</ThemeProvider>
-			</>
-		);
-	}
-	/* … после if (!user) { … }  */
-
-	return (
-		<>
-			<GlobalStyle />
-			<ThemeProvider theme={theme}>
-				<Root>
-					{/* ---------- ЛЕВАЯ ПАНЕЛЬ ---------- */}
-					<Sidebar>
-						<Tip text="New Chat">
-							<IconBtn title="New Chat">
-								<Plus size={20} />
-							</IconBtn>
-						</Tip>
-						<Tip text="All Chats">
-							<IconBtn title="All Chats">
-								<MenuIcon size={20} />
-							</IconBtn>
-						</Tip>
-					</Sidebar>
-
-					{/* ---------- ОСНОВНАЯ ОБЛАСТЬ ---------- */}
-					<Main>
-						{/* ---- Хедер ---- */}
-						<Header>
-							<Title>
-								{appName || ""} <Version>{appVersion || ""}</Version>
-							</Title>
-							<UserInfo>
-								Logged in as&nbsp;{user.email}
-								<LogoutButton onClick={handleLogout}>Logout</LogoutButton>
-							</UserInfo>
-							{activeFileName && (
-								<ActiveFile>
-									<GreenDot />
-									{activeFileName}
-								</ActiveFile>
-							)}
-						</Header>
-
-						{/* ---- Чат ---- */}
-						<ChatBox ref={chatRef}>
-							<AnimatePresence initial={false}>
-								{chats.map((m) => (
-									<MsgWrapper
-										key={m.id}
-										as={motion.div}
-										variants={msgVariants}
-										initial="hidden"
-										animate="visible"
-										exit="hidden"
-										sender={m.sender}
-									>
-										{m.sender === "agent" && (
-											<MsgMeta>
-												<Dot />
-												{current.name}
-											</MsgMeta>
-										)}
-										<Bubble sender={m.sender}>{m.content}</Bubble>
-									</MsgWrapper>
-								))}
-							</AnimatePresence>
-						</ChatBox>
-
-						{/* ---- Инпут + кнопки ---- */}
-						<InputWrapper $dimmed={processing}>
-							{processing && (
-								<ProcessingOverlay
-									as={motion.div}
-									initial={{ opacity: 0 }}
-									animate={{ opacity: 1 }}
-									exit={{ opacity: 0 }}
-								>
-									<Spinner className="spinner" /> Processing…
-								</ProcessingOverlay>
-							)}
-
-							{/* ─── Верхняя линия + Upload + селектор модели ─── */}
-							<TopBar>
-								<Chips>
-									<Tip text="Upload Image">
-										<ActionChip title="Upload Image">
-											<Camera size={16} />
-										</ActionChip>
-									</Tip>
-
-									<ModelSelector>
-										<Tip text="Choose AI Model">
-											<ModelButton onClick={() => setModelMenuOpen((o) => !o)}>
-												<current.icon size={16} />
-												<ModelLabel>{current.name}</ModelLabel>
-												{modelMenuOpen ? (
-													<ChevronUp size={16} />
-												) : (
-													<ChevronDown size={16} />
-												)}
-											</ModelButton>
-										</Tip>
-										{modelMenuOpen && (
-											<Dropdown
-												as={motion.div}
-												initial={{ opacity: 0, y: 4 }}
-												animate={{ opacity: 1, y: 0 }}
-												exit={{ opacity: 0, y: 4 }}
-											>
-												<DropdownHeader>AI Model</DropdownHeader>
-												{modelOptions.map((o) => (
-													<Option
-														key={o.id}
-														selected={o.id === selectedModel}
-														onClick={() => {
-															setSelectedModel(o.id);
-															setModelMenuOpen(false);
-														}}
-													>
-														<IconWrapper>
-															<o.icon size={18} />
-														</IconWrapper>
-														<TextGroup>
-															<OptionTitle>{o.name}</OptionTitle>
-															<OptionDesc>{o.desc}</OptionDesc>
-														</TextGroup>
-														{o.id === selectedModel && <CheckDot />}
-													</Option>
-												))}
-											</Dropdown>
-										)}
-									</ModelSelector>
-								</Chips>
-							</TopBar>
-
-							{/* ─── Само текстовое поле ─── */}
-							<InputBar>
-								<MessageInput
-									placeholder="Type a message…"
-									value={input}
-									onChange={(e) => setInput(e.target.value)}
-									onKeyDown={(e) => e.key === "Enter" && handleSend()}
-									disabled={processing}
-								/>
-							</InputBar>
-
-							{/* ─── Нижняя линия + остальные ActionChip + Send ─── */}
-							<ButtonBar>
-								<Chips>
-									<Tip text="Install dependencies (npm i)">
-										<ActionChip
-											onClick={() =>
-												vscode.postMessage({
-													type: "action",
-													action: "installDeps",
-												})
-											}
-										>
-											<Activity size={16} /> Install
-										</ActionChip>
-									</Tip>
-
-									<Tip text="Launch Expo Dev Server">
-										<ActionChip
-											onClick={() =>
-												vscode.postMessage({
-													type: "action",
-													action: "startExpo",
-												})
-											}
-										>
-											<Play size={16} /> Start
-										</ActionChip>
-									</Tip>
-
-									<Tip text="Stop Expo Dev Server">
-										<ActionChip
-											onClick={() =>
-												vscode.postMessage({
-													type: "action",
-													action: "stopExpo",
-												})
-											}
-										>
-											<Square size={16} /> Stop
-										</ActionChip>
-									</Tip>
-
-									<Tip text="Delete node_modules folder">
-										<ActionChip
-											onClick={() =>
-												vscode.postMessage({
-													type: "action",
-													action: "deleteNodeModules",
-												})
-											}
-										>
-											<Trash size={16} /> Clean libs
-										</ActionChip>
-									</Tip>
-								</Chips>
-								<Actions>
-									<SendButton onClick={handleSend} disabled={processing}>
-										{processing ? (
-											<Spinner className="spinner" />
-										) : (
-											<Send size={18} />
-										)}
-									</SendButton>
-								</Actions>
-							</ButtonBar>
-						</InputWrapper>
-					</Main>
-				</Root>
-			</ThemeProvider>
-		</>
-	);
-}
-
-// Styled components
-/* ------------------------------------------------------------------ */
-/* 3. Tooltip компонент + стили                                       */
-/* ------------------------------------------------------------------ */
+/* ---- tooltip ---- */
 const Tip: React.FC<{ text: string; children: React.ReactNode }> = ({
 	text,
 	children,
 }) => {
-	const [open, setOpen] = useState(false);
+	const [v, setV] = useState(false);
 	return (
 		<TipWrap
-			onMouseEnter={() => setOpen(true)}
-			onMouseLeave={() => setOpen(false)}
-			onFocus={() => setOpen(true)}
-			onBlur={() => setOpen(false)}
+			onMouseEnter={() => setV(true)}
+			onMouseLeave={() => setV(false)}
+			onFocus={() => setV(true)}
+			onBlur={() => setV(false)}
 		>
 			{children}
 			<AnimatePresence>
-				{open && (
+				{v && (
 					<TipBubble
 						as={motion.div}
 						initial={{ opacity: 0, y: 4, scale: 0.95 }}
 						animate={{ opacity: 1, y: 0, scale: 1 }}
 						exit={{ opacity: 0, y: 4, scale: 0.95 }}
-						transition={{ type: "spring", stiffness: 350, damping: 25 }}
 					>
 						{text}
 					</TipBubble>
@@ -586,220 +119,763 @@ const Tip: React.FC<{ text: string; children: React.ReactNode }> = ({
 	);
 };
 
-const Title = styled.div`
-	font-size: 18px;
-	font-weight: 600;
-	display: flex;
-	align-items: baseline;
-	gap: 8px;
-`;
-const Version = styled.span`
-	font-size: 14px;
-	color: ${({ theme }) => theme.colors.accent};
-	font-weight: 500;
-`;
+/* ======================================================================== */
+/*                                   APP                                    */
+/* ======================================================================== */
+export default function App() {
+	/* ---- theme ---- */
+	const ls = localStorage?.getItem("vibe-theme") as "dark" | "light" | null;
+	const ss = vscode.getState?.() as { mode?: "dark" | "light" } | undefined;
+	const sys =
+		window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+	const [mode, setMode] = useState<"dark" | "light">(
+		ss?.mode ?? ls ?? (sys ? "dark" : "light")
+	);
+	const isDark = mode === "dark";
+	const toggleMode = () => {
+		const next = isDark ? "light" : "dark";
+		vscode.setState?.({ mode: next });
+		localStorage?.setItem("vibe-theme", next);
+		setMode(next);
+	};
 
-const TopBar = styled.div`
-	display: flex;
-	align-items: center;
-	padding: 12px 16px;
-	border-bottom: 1px solid ${({ theme }) => theme.colors.border};
-`;
+	/* ---- auth ---- */
+	const [email, setEmail] = useState("");
+	const [pass, setPass] = useState("");
+	const [user, setUser] = useState<any>(null);
+	const [authErr, setAuthErr] = useState<string | null>(null);
+	const [authLoad, setAuthLoad] = useState(false);
 
-const Container = styled.div`
-	max-width: 400px;
-	margin: 20px auto;
-	background-color: #ffffff;
-	border-radius: 16px;
-	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-	padding: 24px;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: 16px;
-	font-family: Arial, sans-serif;
-`;
+	/* ---- chat ---- */
+	const [chats, setChats] = useState<Chat[]>([
+		{
+			id: genId(),
+			sender: "agent",
+			content: "Hi 👋 I’m your mobile-app dev agent…",
+		},
+	]);
+	const [text, setText] = useState("");
+	const [model, setModel] = useState(modelOptions[0].id);
+	const [open, setOpen] = useState(false);
+	const [busy, setBusy] = useState(false);
 
-const QRContainer = styled.div`
-	width: 300px;
-	height: 300px;
-`;
+	/* ---- VS Code info ---- */
+	const [file, setFile] = useState("");
+	const [appName, setAppName] = useState("");
+	const [ver, setVer] = useState("");
+	useEffect(() => {
+		const handler = (e: MessageEvent) => {
+			const m = e.data;
+			if (!m?.type) return;
+			if (m.type === "appInfo") {
+				setAppName(m.name);
+				setVer(m.version);
+			}
+			if (m.type === "activeFile") setFile(m.fileName);
+		};
+		window.addEventListener("message", handler);
+		vscode.postMessage({ type: "getActiveFile" });
+		return () => window.removeEventListener("message", handler);
+	}, []);
 
-const QRImage = styled.img`
-	width: 100%;
-	height: 100%;
-	object-fit: contain;
-	border-radius: 8px;
-	box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
-`;
+	/* ---- settings dropdown ---- */
+	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [projName, setProjName] = useState("");
+	const [projSlug, setProjSlug] = useState("");
+	const [iosId, setIosId] = useState("");
+	const [androidId, setAndroidId] = useState("");
+	const [privacy, setPrivacy] = useState(false);
+	const [icon, setIcon] = useState<File | null>(null);
+	const saveSettings = () => {
+		vscode.postMessage({
+			type: "saveSettings",
+			data: { projName, projSlug, iosId, androidId, privacy },
+		});
+		setSettingsOpen(false);
+	};
 
-const Big = styled.code`
-	font-size: 16px;
-	color: "white" /* «тёмный» цвет для URL-а */
-	text-align: center;
-	word-break: break-all;
-	width: 100%;
-`;
+	/* ---- publish dropdown ---- */
+	const [publishOpen, setPublishOpen] = useState(false);
+	const previewUrl = `${projSlug || "home-search-platform-84k99z4"}.rork.app`;
 
-const Heading = styled.h3`
-	font-size: 18px;
-	font-weight: 600;
-	color: #333333;
-	margin: 0;
-	text-align: center;
-`;
+	/* ---- project list ---- */
+	const projects = [
+		{ id: "One", name: "One" },
+		{ id: "Two", name: "Two" },
+		{ id: "Three", name: "Three" },
+	];
+	const [activeProject, setActiveProject] = useState(projects[0].id);
 
-const Highlight = styled.span`
-	color: #805ad5;
-`;
+	/* ---- helpers ---- */
+	const boxRef = useRef<HTMLDivElement>(null);
+	const scroll = () =>
+		setTimeout(
+			() =>
+				boxRef.current?.scrollTo({
+					top: boxRef.current.scrollHeight,
+					behavior: "smooth",
+				}),
+			40
+		);
+	const push = useCallback(
+		(sender: Chat["sender"], content: React.ReactNode) => {
+			setChats((p) => [...p, { id: genId(), sender, content }]);
+			scroll();
+		},
+		[]
+	);
+	const send = () => {
+		if (!text.trim() || busy) return;
+		setBusy(true);
+		push("user", text);
+		vscode.postMessage({ type: "prompt", value: text, model: modelMap[model] });
+		setText("");
+		setOpen(false);
+	};
 
-const Subtext = styled.p`
-	font-size: 14px;
-	color: #555555;
-	margin: 4px 0 0;
-	text-align: center;
-`;
+	/* ---- Supabase auth session ---- */
+	useEffect(() => {
+		supabase.auth
+			.getSession()
+			.then(({ data: { session } }) => setUser(session?.user || null));
+		const { data: sub } = supabase.auth.onAuthStateChange((_e, s) =>
+			setUser(s?.user || null)
+		);
+		return () => sub.subscription.unsubscribe();
+	}, []);
+	const login = async () => {
+		setAuthLoad(true);
+		setAuthErr(null);
+		const { error, data } = await supabase.auth.signInWithPassword({
+			email,
+			password: pass,
+		});
+		setAuthLoad(false);
+		error ? setAuthErr(error.message) : setUser(data.session?.user || null);
+	};
+	const logout = () => supabase.auth.signOut().then(() => setUser(null));
 
-const TipWrap = styled.span`
-	position: relative;
-	display: inline-block; /* чтобы ширина = ширина кнопки */
-`;
+	// Place at top of your App component, alongside other refs
+	const savedBubbleRef = useRef<string | null>(null);
 
-const TipBubble = styled.div`
-	position: absolute;
-	bottom: 100%; /* выровняли верх пузыря по верху TipWrap */
-	left: 0%; /* точка отсчёта — середина TipWrap */
-	margin-bottom: 8px; /* отступ над кнопкой */
-	transform: translateX(
-		-50%
-	); /* сдвигаем назад на половину ширины самого пузыря */
-	white-space: nowrap;
-	padding: 6px 10px;
-	font-size: 13px;
-	font-weight: 500;
-	background: ${({ theme }) => theme.colors.fg};
-	color: ${({ theme }) => theme.colors.bg};
-	border-radius: 8px;
-	pointer-events: none;
-	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
-	z-index: 50;
-`;
+	// Message handler: group fileSaved messages in one live bubble with animations
+	useEffect(() => {
+		const handler = (e: MessageEvent) => {
+			const m = e.data;
+			if (!m?.type) return;
 
-const Spinner = styled(Info)`
-	/* минимальный спиннер-иконка */
-	animation: spin 0.8s linear infinite;
-`;
+			const animateWrapper = (children: React.ReactNode) => (
+				<motion.div
+					initial={{ opacity: 0, y: 10 }}
+					animate={{ opacity: 1, y: 0 }}
+					exit={{ opacity: 0, y: 10 }}
+					transition={{ duration: 0.3 }}
+				>
+					{children}
+				</motion.div>
+			);
 
-const ProcessingOverlay = styled.div`
-	position: absolute;
-	inset: 0;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	gap: 10px;
-	font-size: 15px;
-	font-weight: 500;
-	background: rgba(0, 0, 0, 0.25);
-	color: #fff;
-	backdrop-filter: blur(4px);
-	border-radius: 16px;
-`;
+			switch (m.type) {
+				case "status":
+					// clear any active saved bubble
+					savedBubbleRef.current = null;
+					push("agent", animateWrapper(<i>{m.message}</i>));
+					break;
 
-const AuthContainer = styled.div`
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-	height: 100vh;
-	background: ${({ theme }) => theme.colors.bg};
-	color: ${({ theme }) => theme.colors.fg};
-`;
-const Input = styled.input`
-	width: 280px;
-	margin: 8px 0;
-	padding: 10px;
-	background: ${({ theme }) => theme.colors.bgAlt};
-	color: ${({ theme }) => theme.colors.fg};
-	border: 1px solid ${({ theme }) => theme.colors.border};
-	border-radius: 8px;
-`;
-const AuthButton = styled.button`
-	margin-top: 12px;
-	padding: 10px 20px;
-	background: ${({ theme }) => theme.colors.accent};
-	color: #fff;
-	border: none;
-	border-radius: 8px;
-	cursor: pointer;
-	&:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
+				case "fileSaved":
+					const fileLine = (
+						<>
+							✅ <b>{m.file}</b> saved
+						</>
+					);
+					if (savedBubbleRef.current) {
+						// append to existing bubble
+						setChats((prev) =>
+							prev.map((c) => {
+								if (c.id === savedBubbleRef.current) {
+									return {
+										...c,
+										content: (
+											<motion.div
+												initial={{ opacity: 0, y: 10 }}
+												animate={{ opacity: 1, y: 0 }}
+												exit={{ opacity: 0, y: 10 }}
+												transition={{ duration: 0.3 }}
+											>
+												{c.content}
+												<div>{fileLine}</div>
+											</motion.div>
+										),
+									};
+								}
+								return c;
+							})
+						);
+					} else {
+						// create new bubble
+						const id = genId();
+						savedBubbleRef.current = id;
+						setChats((prev) => [
+							...prev,
+							{
+								id,
+								sender: "agent",
+								content: animateWrapper(<div>{fileLine}</div>),
+							},
+						]);
+					}
+					break;
+
+				case "expoQr": {
+					savedBubbleRef.current = null;
+					const { url, img, svg } = m;
+					push(
+						"agent",
+						animateWrapper(
+							<Container>
+								{svg && (
+									<QRContainer dangerouslySetInnerHTML={{ __html: svg }} />
+								)}
+								{img && <QRImage src={img} alt="Expo QR" />}
+								<Big>{`exp://${url}`}</Big>
+								<Heading>Scan QR with your phone</Heading>
+								<Subtext>Expo Go will launch your app</Subtext>
+							</Container>
+						)
+					);
+					break;
+				}
+
+				case "done":
+					savedBubbleRef.current = null;
+					push("agent", animateWrapper(<b>{m.message}</b>));
+					setBusy(false);
+					break;
+
+				case "error":
+					savedBubbleRef.current = null;
+					push(
+						"agent",
+						animateWrapper(
+							<>
+								<b>Error:</b> {m.message}
+							</>
+						)
+					);
+					setBusy(false);
+					break;
+
+				default:
+					break;
+			}
+		};
+
+		window.addEventListener("message", handler);
+		return () => window.removeEventListener("message", handler);
+	}, [push]);
+	/* ---- login screen ---- */
+	if (!user) {
+		return (
+			<ThemeProvider theme={isDark ? darkTheme : lightTheme}>
+				<GlobalStyle />
+				<Auth>
+					{authErr && <Err>{authErr}</Err>}
+					<In
+						type="email"
+						placeholder="Email"
+						value={email}
+						onChange={(e) => setEmail(e.target.value)}
+					/>
+					<In
+						type="password"
+						placeholder="Password"
+						value={pass}
+						onChange={(e) => setPass(e.target.value)}
+					/>
+					<Btn onClick={login} disabled={authLoad}>
+						{authLoad ? "…" : "Login"}
+					</Btn>
+				</Auth>
+			</ThemeProvider>
+		);
 	}
-`;
-const ErrorText = styled.p`
-	color: #f00;
-	margin-bottom: 8px;
-`;
+
+	/* ==================================================================== */
+	/*                                 UI                                   */
+	/* ==================================================================== */
+	return (
+		<ThemeProvider theme={isDark ? darkTheme : lightTheme}>
+			<GlobalStyle />
+			<Root>
+				{/* ───── Sidebar ───── */}
+				<Side>
+					<Tip text="New chat">
+						<Ico
+							onClick={() =>
+								setChats([
+									{
+										id: genId(),
+										sender: "agent",
+										content: "Hi 👋 Let’s start a new chat…",
+									},
+								])
+							}
+						>
+							<Plus size={20} />
+						</Ico>
+					</Tip>
+
+					<ProjectList>
+						{projects.map((p) => (
+							<ProjectItem
+								key={p.id}
+								$active={p.id === activeProject}
+								onClick={() => setActiveProject(p.id)}
+							>
+								<LetterBadge>{p.name.charAt(0)}</LetterBadge>
+							</ProjectItem>
+						))}
+					</ProjectList>
+				</Side>
+
+				{/* ───── Main ───── */}
+				<Main>
+					{/* ===== Header ===== */}
+					<Head>
+						<TitleGroup>
+							<Title>{appName}</Title>
+							<Lock size={16} />
+
+							{/* ---------- Version dropdown ---------- */}
+							<VersionBtn onClick={() => setSettingsOpen((o) => !o)}>
+								{ver}
+								{settingsOpen ? (
+									<ChevronUp size={16} />
+								) : (
+									<ChevronDown size={16} />
+								)}
+							</VersionBtn>
+
+							<AnimatePresence>
+								{settingsOpen && (
+									<SettingsCard
+										as={motion.div}
+										initial={{ opacity: 0, y: 8 }}
+										animate={{ opacity: 1, y: 0 }}
+										exit={{ opacity: 0, y: 8 }}
+									>
+										{/* (форма настроек — оставлена без изменений) */}
+										<SettingsGrid>
+											<Field>
+												<Label>Project name</Label>
+												<Input
+													placeholder="Enter project name"
+													value={projName}
+													onChange={(e) => setProjName(e.target.value)}
+												/>
+												<Hint>Name shown in Rork & stores</Hint>
+											</Field>
+
+											<Field>
+												<Label>Project slug</Label>
+												<Input
+													placeholder="my-cool-app"
+													value={projSlug}
+													onChange={(e) => setProjSlug(e.target.value)}
+												/>
+												<Small>Checking availability…</Small>
+											</Field>
+
+											<Field>
+												<Label>iOS Bundle ID</Label>
+												<Input
+													placeholder="app.rork.myapp"
+													value={iosId}
+													onChange={(e) => setIosId(e.target.value)}
+												/>
+												<Hint>Unique ID for App Store</Hint>
+											</Field>
+
+											<Field>
+												<Label>Android Package</Label>
+												<Input
+													placeholder="app.rork.myapp"
+													value={androidId}
+													onChange={(e) => setAndroidId(e.target.value)}
+												/>
+												<Hint>Unique ID for Play Store</Hint>
+											</Field>
+										</SettingsGrid>
+
+										<Section>
+											<SectionLabel>App Icon</SectionLabel>
+											<IconDrop>
+												{icon ? (
+													<img src={URL.createObjectURL(icon)} alt="icon" />
+												) : (
+													<Placeholder />
+												)}
+												<UploadBtn as="label">
+													Change icon
+													<input
+														type="file"
+														hidden
+														accept="image/*"
+														onChange={(e) => {
+															if (e.target.files?.[0])
+																setIcon(e.target.files[0]);
+														}}
+													/>
+												</UploadBtn>
+												<Small>Drag & drop or click to upload</Small>
+											</IconDrop>
+											<HintAuto>Auto-resized to 1024 px</HintAuto>
+										</Section>
+
+										<Section>
+											<SectionLabel>Project privacy</SectionLabel>
+											<PrivacyRow>
+												<span>Keep project private</span>
+												<Toggle
+													type="checkbox"
+													checked={privacy}
+													onChange={(e) => setPrivacy(e.target.checked)}
+												/>
+											</PrivacyRow>
+											<HintSmall>Requires Rork Pro</HintSmall>
+										</Section>
+
+										<DangerRow>
+											<DangerBtn onClick={() => alert("Delete forever")}>
+												Delete
+											</DangerBtn>
+											<span>This action cannot be undone</span>
+										</DangerRow>
+
+										<SaveBtn onClick={saveSettings}>Save changes</SaveBtn>
+									</SettingsCard>
+								)}
+							</AnimatePresence>
+						</TitleGroup>
+
+						{/* ---------- Publish dropdown ---------- */}
+						<PublishWrap>
+							<Tip text="Publish">
+								<Ico onClick={() => setPublishOpen((o) => !o)}>
+									<Upload size={18} />
+								</Ico>
+							</Tip>
+
+							<AnimatePresence>
+								{publishOpen && (
+									<PublishMenu
+										as={motion.div}
+										initial={{ opacity: 0, y: 8 }}
+										animate={{ opacity: 1, y: 0 }}
+										exit={{ opacity: 0, y: 8 }}
+									>
+										<PubSection>
+											<H2>App preview</H2>
+											<InputLike>
+												{previewUrl}
+												<LinkIcon size={16} />
+											</InputLike>
+											<BigBtn
+												onClick={() =>
+													window.open(`https://${previewUrl}`, "_blank")
+												}
+											>
+												<ExternalLink size={18} /> Open
+											</BigBtn>
+										</PubSection>
+
+										<Divider />
+
+										<PubSection>
+											<H2>App stores</H2>
+											<BigBtn>
+												<Apple size={18} /> Publish to App Store
+											</BigBtn>
+											<BigBtn>
+												<Store size={18} /> Publish to Google Play
+											</BigBtn>
+										</PubSection>
+									</PublishMenu>
+								)}
+							</AnimatePresence>
+						</PublishWrap>
+
+						{/* Theme toggle */}
+						<Ico title="Toggle theme" onClick={toggleMode}>
+							{isDark ? <Sun size={18} /> : <Moon size={18} />}
+						</Ico>
+
+						<User>
+							{user.email}
+							<Logout onClick={logout}>Logout</Logout>
+						</User>
+						{!!file && (
+							<File>
+								<Dot />
+								{file}
+							</File>
+						)}
+					</Head>
+
+					{/* ===== Chat ===== */}
+					<Box ref={boxRef}>
+						{chats.map((m) => (
+							<Msg key={m.id} sender={m.sender}>
+								{m.sender === "agent" && (
+									<Meta>
+										<DotA />
+										{modelOptions.find((o) => o.id === model)!.name}
+									</Meta>
+								)}
+								<Bubble sender={m.sender}>{m.content}</Bubble>
+							</Msg>
+						))}
+					</Box>
+
+					{/* ===== Input panel ===== */}
+					<Panel $dim={busy}>
+						{busy && (
+							<Overlay
+								as={motion.div}
+								initial={{ opacity: 0 }}
+								animate={{ opacity: 1 }}
+							>
+								<Spin className="spinner" /> Processing…
+							</Overlay>
+						)}
+
+						<Top>
+							<Tip text="Upload image">
+								<Chip>
+									<Camera size={16} />
+								</Chip>
+							</Tip>
+
+							<Picker>
+								<Pick $open={open} onClick={() => setOpen((o) => !o)}>
+									{React.createElement(
+										modelOptions.find((o) => o.id === model)!.icon,
+										{ size: 16 }
+									)}
+									<span>{modelOptions.find((o) => o.id === model)!.name}</span>
+									{open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+								</Pick>
+								<AnimatePresence>
+									{open && (
+										<Menu
+											as={motion.div}
+											initial={{ opacity: 0, y: 4 }}
+											animate={{ opacity: 1, y: 0 }}
+											exit={{ opacity: 0, y: 4 }}
+										>
+											<MenuHead>AI model</MenuHead>
+											{modelOptions.map((opt) => (
+												<Item
+													key={opt.id}
+													$sel={opt.id === model}
+													onClick={() => {
+														setModel(opt.id);
+														setOpen(false);
+													}}
+												>
+													<IconWrap>
+														<opt.icon size={16} />
+													</IconWrap>
+													<TextWrap>
+														<strong>{opt.name}</strong>
+														<small>{opt.desc}</small>
+													</TextWrap>
+													{/* опционально: маркер выбранного справа */}
+													{opt.id === model && <DotA />}
+												</Item>
+											))}
+										</Menu>
+									)}
+								</AnimatePresence>
+							</Picker>
+						</Top>
+
+						<Mid>
+							<TA
+								placeholder="Type a message…"
+								value={text}
+								onChange={(e) => setText(e.target.value)}
+								onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
+								disabled={busy}
+							/>
+						</Mid>
+
+						<Bot>
+							<Chips>
+								{[
+									{
+										tip: "Install dependencies",
+										icon: Activity,
+										act: "installDeps",
+										label: "Install",
+									},
+									{
+										tip: "Start Expo",
+										icon: Play,
+										act: "startExpo",
+										label: "Start",
+									},
+									{
+										tip: "Stop Expo",
+										icon: Square,
+										act: "stopExpo",
+										label: "Stop",
+									},
+									{
+										tip: "Clean node_modules",
+										icon: Trash,
+										act: "deleteNodeModules",
+										label: "Clean libs",
+									},
+								].map((b) => (
+									<Tip key={b.act} text={b.tip}>
+										<Chip
+											onClick={() =>
+												vscode.postMessage({ type: "action", action: b.act })
+											}
+										>
+											{React.createElement(b.icon, { size: 16 })}
+											{b.label}
+										</Chip>
+									</Tip>
+								))}
+							</Chips>
+							<Ico onClick={send} disabled={busy}>
+								{busy ? <Spin className="spinner" /> : <Send size={18} />}
+							</Ico>
+						</Bot>
+					</Panel>
+				</Main>
+			</Root>
+		</ThemeProvider>
+	);
+}
+
+/* ====================================================================== */
+/*                              styled-components                         */
+/* ====================================================================== */
+
+/* ---- layout ---- */
 const Root = styled.div`
 	display: flex;
-	width: 100vw;
+	width: 100%;
 	height: 100vh;
-	background: ${({ theme }) => theme.colors.bg};
-	color: ${({ theme }) => theme.colors.fg};
-	font-family: ${({ theme }) => theme.fonts.family};
-	font-size: ${({ theme }) => theme.fonts.base};
 `;
-const Sidebar = styled.aside`
-	width: ${({ theme }) => theme.sizes.sidebarWidth};
-	background: ${({ theme }) => theme.colors.bgAlt};
-	border-right: 1px solid ${({ theme }) => theme.colors.border};
+const Side = styled.aside`
+	width: ${(p) => p.theme.sizes.sidebarWidth};
+	background: ${(p) => p.theme.colors.bgAlt};
+	border-right: 1px solid ${(p) => p.theme.colors.border};
 	display: flex;
 	flex-direction: column;
 	align-items: center;
 	padding: 16px 0;
 `;
-const IconBtn = styled.button`
-	background: transparent;
-	border: none;
-	padding: 8px;
-	border-radius: 8px;
-	cursor: pointer;
-	color: ${({ theme }) => theme.colors.fg};
-	&:hover {
-		background: rgba(255, 255, 255, 0.1);
-		transform: scale(1.1);
-	}
-	transition: background 0.2s, transform 0.2s;
-`;
 const Main = styled.main`
+	flex: 1;
 	display: flex;
 	flex-direction: column;
-	flex: 1;
 `;
-const Header = styled.header`
-	height: ${({ theme }) => theme.sizes.headerHeight};
-	background: ${({ theme }) => theme.colors.bgAlt};
-	border-bottom: 1px solid ${({ theme }) => theme.colors.border};
+
+/* ---- header ---- */
+const Head = styled.header`
+	height: ${(p) => p.theme.sizes.headerHeight};
 	display: flex;
 	align-items: center;
 	padding: 0 24px;
-	font-weight: 600;
+	background: ${(p) => p.theme.colors.bgAlt};
+	border-bottom: 1px solid ${(p) => p.theme.colors.border};
 `;
-const ActiveFile = styled.div`
-	margin-left: auto;
+const TitleGroup = styled.div`
 	display: flex;
 	align-items: center;
-	color: #0f0;
+	gap: 10px;
+	position: relative;
+`;
+const Title = styled.h1`
+	margin: 0;
+	font-size: 18px;
+	font-weight: 600;
+`;
+const VersionBtn = styled.button`
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 10px;
 	font-size: 14px;
+	border-radius: 8px;
+	border: 1px solid ${({ theme }) => theme.colors.border};
+	background: ${({ theme }) => theme.colors.bgAlt};
+	color: ${({ theme }) => theme.colors.fg};
+	cursor: pointer;
 `;
-const GreenDot = styled.span`
-	width: 8px;
-	height: 8px;
-	background: #0f0;
-	border-radius: 50%;
-	margin-right: 8px;
+
+/* ---- publish dropdown wrap ---- */
+const PublishWrap = styled.div`
+	position: relative;
+	/* margin-left немного, чтобы кнопки не слипались */
+	margin-left: 12px;
 `;
-const ChatBox = styled.div`
+
+const PublishMenu = styled(motion.div)`
+	position: fixed;
+	top: calc(${({ theme }) => theme.sizes.headerHeight} + 20px);
+	left: 0;
+	right: 0;
+	margin: 0 auto;
+	width: 480px;
+	max-width: 90vw;
+	background: ${(p) => p.theme.colors.bgAlt};
+	border: 1px solid ${(p) => p.theme.colors.border};
+	border-radius: 12px;
+	padding: 24px;
+	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+	z-index: 70;
+`;
+
+/* ---- sidebar projects ---- */
+const ProjectList = styled.div`
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	margin-top: 24px;
+`;
+const ProjectItem = styled.button<{ $active?: boolean }>`
+	width: 48px;
+	height: 48px;
+	border-radius: 12px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid
+		${(p) => (p.$active ? p.theme.colors.accent : p.theme.colors.border)};
+	background: ${(p) => (p.$active ? p.theme.colors.accent : "transparent")};
+	color: ${(p) => (p.$active ? "#fff" : p.theme.colors.fg)};
+	cursor: pointer;
+	transition: transform 0.2s;
+	&:hover {
+		transform: scale(1.1);
+	}
+`;
+const LetterBadge = styled.span`
+	font-weight: 600;
+	font-size: 15px;
+`;
+
+/* ---- chat ---- */
+const Box = styled.div`
 	flex: 1;
 	overflow-y: auto;
 	padding: 24px;
@@ -807,227 +883,563 @@ const ChatBox = styled.div`
 	flex-direction: column;
 	gap: 16px;
 `;
-const MsgWrapper = styled.div<{ sender: string }>`
+const Msg = styled.div<{ sender: string }>`
 	display: flex;
 	flex-direction: column;
-	align-items: ${({ sender }) =>
-		sender === "user" ? "flex-end" : "flex-start"};
+	align-items: ${(p) => (p.sender === "user" ? "flex-end" : "flex-start")};
 `;
-const MsgMeta = styled.div`
+const Meta = styled.div`
 	font-size: 12px;
 	color: #999;
-	display: inline-flex;
+	display: flex;
 	align-items: center;
 	gap: 6px;
 	margin-bottom: 4px;
 `;
-const Dot = styled.span`
-	width: 6px;
-	height: 6px;
-	background: ${({ theme }) => theme.colors.accent};
-	border-radius: 50%;
-`;
+
 const Bubble = styled.div<{ sender: string }>`
 	max-width: 75%;
 	padding: 12px 16px;
-	background: ${({ sender, theme }) =>
-		sender === "agent" ? theme.colors.bgAlt : theme.colors.userMsg};
-	color: ${({ sender, theme }) =>
-		sender === "agent" ? theme.colors.fg : theme.colors.bg};
-	border: 1px solid ${({ theme }) => theme.colors.border};
 	border-radius: 16px;
-	line-height: 1.5;
+	border: 1px solid ${(p) => p.theme.colors.border};
+	background: ${(p) =>
+		p.sender === "agent" ? p.theme.colors.bgAlt : p.theme.colors.userMsg};
+	color: ${(p) =>
+		p.sender === "agent" ? p.theme.colors.fg : p.theme.colors.bg};
 `;
-const InputWrapper = styled.div<{ $dimmed?: boolean }>`
-	margin: 16px 24px;
-	background: ${({ theme }) => theme.colors.bgAlt};
-	border: 1px solid ${({ theme }) => theme.colors.border};
-	border-radius: 16px;
-	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-	position: relative;
 
-	/* опционально: визуально «гасим» блок во время обработки */
-	${({ $dimmed }) =>
-		$dimmed &&
+/* ---- input panel ---- */
+const Panel = styled.div<{ $dim?: boolean }>`
+	position: relative;
+	margin: 16px 24px;
+	background: ${(p) => p.theme.colors.bgAlt};
+	border: 1px solid ${(p) => p.theme.colors.border};
+	border-radius: 16px;
+	${(p) =>
+		p.$dim &&
 		css`
 			opacity: 0.6;
 			pointer-events: none;
 		`}
 `;
-
-const InputBar = styled.div`
+const Top = styled.div`
 	display: flex;
 	align-items: center;
+	gap: 12px;
+	padding: 12px 16px;
+	border-bottom: 1px solid ${(p) => p.theme.colors.border};
+`;
+const Mid = styled.div`
 	padding: 12px 16px;
 `;
-const MessageInput = styled.textarea`
-	flex: 1;
-	padding: 12px 16px;
-	border: none;
-	border-radius: 12px;
-	font-size: 14px;
-	background: ${({ theme }) => theme.colors.bg};
-	color: ${({ theme }) => theme.colors.fg};
-	resize: none;
-	min-height: 44px;
-	line-height: 1.4;
-	&:focus {
-		outline: none;
-	}
-`;
-const ButtonBar = styled.div`
+const Bot = styled.div`
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
 	padding: 12px 16px;
-	border-top: 1px solid ${({ theme }) => theme.colors.border};
+	border-top: 1px solid ${(p) => p.theme.colors.border};
 `;
-const Chips = styled.div`
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	position: relative;
+const TA = styled.textarea`
+	box-sizing: border-box; /* добавили */
+	width: 100%;
+	min-height: 44px;
+	resize: none;
+	border: none;
+	border-radius: 12px;
+	padding: 12px 16px; /* учтётся в расчёте ширины */
+	font-size: 14px;
+	background: ${(p) => p.theme.colors.bg};
+	color: ${(p) => p.theme.colors.fg};
 `;
-const ActionChip = styled.button`
+
+/* ---- chips & picker ---- */
+const Chip = styled.button`
 	display: flex;
 	align-items: center;
 	gap: 6px;
 	padding: 8px 12px;
-	background: ${({ theme }) => theme.colors.bg};
-	color: ${({ theme }) => theme.colors.fg};
-	border: 1px solid ${({ theme }) => theme.colors.border};
 	border-radius: 999px;
-	font-size: 14px;
+	border: 1px solid ${(p) => p.theme.colors.border};
+	background: ${(p) => p.theme.colors.bg};
+	color: ${(p) => p.theme.colors.fg};
 	cursor: pointer;
-	&:hover {
-		background: rgba(255, 255, 255, 0.1);
-	}
 `;
-const ModelSelector = styled.div`
+const Chips = styled.div`
+	display: flex;
+	gap: 12px;
+`;
+const Picker = styled.div`
 	position: relative;
 `;
-const ModelButton = styled.button`
+const Pick = styled.button<{ $open: boolean }>`
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	padding: 8px 12px;
-	background: #000;
-	color: #fff;
-	border: 1px solid #222;
-	border-radius: 999px;
+	padding: 8px 16px;
+	border: 1px solid ${({ theme }) => theme.colors.border};
+	background: ${({ theme, $open }) =>
+		$open ? theme.colors.bgAlt : theme.colors.bg};
+	color: ${({ theme }) => theme.colors.fg};
+	border-radius: 12px;
 	font-size: 14px;
 	cursor: pointer;
+	transition: background 0.2s, box-shadow 0.2s;
+
+	&:hover {
+		background: ${({ theme }) => theme.colors.bgAlt};
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+	}
 `;
-const ModelLabel = styled.span`
-	font-weight: 500;
-`;
-const Dropdown = styled.div`
+const Menu = styled.div`
 	position: absolute;
-	bottom: 100%;
+	top: calc(100% + 6px);
 	left: 0;
-	margin-bottom: 6px;
-	width: 260px;
+	width: 240px;
 	background: ${({ theme }) => theme.colors.bgAlt};
 	border: 1px solid ${({ theme }) => theme.colors.border};
 	border-radius: 12px;
-	box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
-	overflow: hidden;
+	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+	padding: 8px 0; /* отступ сверху/снизу внутри всего меню */
 	z-index: 20;
 `;
-const DropdownHeader = styled.div`
-	padding: 12px 16px;
-	font-size: 16px;
+
+const MenuHead = styled.div`
+	padding: 8px 16px; /* внутренние отступы у заголовка */
 	font-weight: 600;
+	font-size: 13px;
+	color: ${({ theme }) => theme.colors.fg};
 	border-bottom: 1px solid ${({ theme }) => theme.colors.border};
 `;
-const Option = styled.div<{ selected: boolean }>`
-	display: flex;
-	align-items: flex-start;
-	padding: 12px 16px;
-	gap: 12px;
-	cursor: pointer;
-	background: ${({ selected }) =>
-		selected ? "rgba(10,132,255,0.1)" : "transparent"};
-	&:hover {
-		background: rgba(255, 255, 255, 0.1);
-	}
-`;
-const IconWrapper = styled.div`
-	margin-top: 4px;
-	color: ${({ theme }) => theme.colors.accent};
-`;
-const TextGroup = styled.div`
-	flex: 1;
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-`;
-const OptionTitle = styled.div`
-	font-size: 15px;
-	font-weight: 500;
-`;
-const OptionDesc = styled.div`
-	font-size: 13px;
-	color: #999;
-`;
-const CheckDot = styled.div`
-	width: 8px;
-	height: 8px;
-	background: ${({ theme }) => theme.colors.accent};
-	border-radius: 50%;
-`;
-const Actions = styled.div`
-	display: flex;
-	align-items: center;
-`;
-const SendButton = styled.button`
-	background: ${({ theme }) => theme.colors.accent};
-	border: none;
-	width: 44px;
-	height: 44px;
-	border-radius: 50%;
+
+// Обёртка для иконки — фиксированная ширина, чтобы текст начинался с одинаковой позиции
+const IconWrap = styled.div`
+	width: 20px; /* фиксируем поле иконки */
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	cursor: pointer;
-	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-	&:hover {
-		transform: scale(1.1);
-		box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
-	}
+	margin-right: 8px; /* небольшой отступ до текста */
 `;
-const StreamBubble = styled.div`
+
+// Контейнер для текста — займёт всё оставшееся место
+const TextWrap = styled.div`
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
-	max-width: 75%;
-	padding: 12px 16px;
-	background: ${({ theme }) => theme.colors.bgAlt};
-	border-radius: 16px;
-	overflow: hidden;
+	gap: 2px; /* отступ между заголовком и подписью */
+	flex: 1;
 `;
-const msgVariants = {
-	hidden: { opacity: 0, y: 10 },
-	visible: { opacity: 1, y: 0, transition: { duration: 0.2 } },
-};
 
-// Styled components definitions
-const UserInfo = styled.div`
+// Кнопка-пункт выпадашки
+const Item = styled.button<{ $sel: boolean }>`
+	display: flex;
+	align-items: center;
+	width: 100%;
+	padding: 8px 16px; /* внутренние отступы пункта */
+	background: ${({ theme, $sel }) =>
+		$sel ? `${theme.colors.accent}1A` : "transparent"};
+	color: ${({ theme, $sel }) => ($sel ? theme.colors.accent : theme.colors.fg)};
+	border: none;
+	cursor: pointer;
+	transition: background 0.2s;
+
+	&:hover {
+		background: ${({ theme }) => `${theme.colors.border}20`};
+	}
+`;
+
+// 3) Маркер—точка при выбранном элементе уезжает вправо
+const DotA = styled.span`
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: ${({ theme }) => theme.colors.accent};
+	margin-left: auto;
+`;
+
+/* ---- busy overlay ---- */
+const Overlay = styled.div`
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	background: rgba(0, 0, 0, 0.25);
+	backdrop-filter: blur(4px);
+	border-radius: 16px;
+	color: #fff;
+	font-weight: 500;
+`;
+const Spin = styled(Info)`
+	animation: spin 0.8s linear infinite;
+`;
+
+/* ---- auth screen ---- */
+const Auth = styled.div`
+	height: 100vh;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	gap: 12px;
+`;
+const In = styled.input`
+	width: 280px;
+	padding: 10px;
+	border-radius: 8px;
+	border: 1px solid ${(p) => p.theme.colors.border};
+	background: ${(p) => p.theme.colors.bgAlt};
+	color: ${(p) => p.theme.colors.fg};
+`;
+const Btn = styled.button`
+	padding: 10px 20px;
+	border: none;
+	border-radius: 8px;
+	background: ${(p) => p.theme.colors.accent};
+	color: #fff;
+	cursor: pointer;
+	opacity: ${(p) => (p.disabled ? 0.6 : 1)};
+`;
+const Err = styled.p`
+	color: #f00;
+`;
+
+/* ---- header user ---- */
+const User = styled.div`
+	margin-left: auto;
 	display: flex;
 	align-items: center;
 	gap: 12px;
-	margin-left: auto;
 	font-size: 14px;
 `;
-
-const LogoutButton = styled.button`
+const Logout = styled.button`
 	padding: 6px 12px;
-	background: ${({ theme }) => "#e00"};
-	color: #fff;
 	border: none;
 	border-radius: 8px;
+	background: #e00;
+	color: #fff;
 	cursor: pointer;
+`;
+const File = styled.div`
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-left: 24px;
+	font-size: 14px;
+	color: #0f0;
+`;
+const Dot = styled.span`
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: #0f0;
+`;
+
+/* ---- tooltip & icon ---- */
+const TipWrap = styled.span`
+	position: relative;
+	display: inline-block;
+`;
+const TipBubble = styled.div`
+	position: absolute;
+	bottom: 100%;
+	left: 50%;
+	transform: translateX(-50%);
+	margin-bottom: 8px;
+	padding: 6px 10px;
+	border-radius: 8px;
+	background: ${(p) => p.theme.colors.fg};
+	color: ${(p) => p.theme.colors.bg};
+	font-size: 13px;
+	font-weight: 500;
+	white-space: nowrap;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+`;
+const Ico = styled.button`
+	background: transparent;
+	border: none;
+	padding: 8px;
+	border-radius: 8px;
+	color: ${(p) => p.theme.colors.fg};
+	cursor: pointer;
+	transition: 0.2s;
 	&:hover {
-		opacity: 0.8;
+		background: rgba(255, 255, 255, 0.08);
+		transform: scale(1.1);
 	}
+	&:disabled {
+		opacity: 0.6;
+	}
+`;
+
+/* ---- settings dropdown ---- */
+const SettingsCard = styled(motion.div)`
+	position: fixed;
+	top: calc(${({ theme }) => theme.sizes.headerHeight} + 20px);
+	left: 0;
+	right: 0;
+	margin: 0 auto;
+	width: 560px;
+	max-width: 90vw;
+	background: ${({ theme }) => theme.colors.bgAlt};
+	color: ${({ theme }) => theme.colors.fg}; /* <— добавлено */
+	border: 1px solid ${({ theme }) => theme.colors.border};
+	border-radius: 12px;
+	padding: 24px;
+	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+	z-index: 70;
+`;
+const SettingsGrid = styled.div`
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 24px 16px;
+`;
+const Field = styled.div`
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+`;
+const Label = styled.label`
+	font-size: 14px;
+	font-weight: 600;
+`;
+const Input = styled.input`
+	color: ${({ theme }) => theme.colors.fg};
+	background: ${({ theme }) => theme.colors.bg};
+	border: 1px solid ${({ theme }) => theme.colors.border};
+	padding: 10px;
+	border-radius: 8px;
+	font-size: 14px;
+
+	&::placeholder {
+		color: ${({ theme }) => theme.colors.fg}80; /* чуть прозрачнее основного */
+	}
+`;
+const Hint = styled.span`
+	font-size: 12px;
+	opacity: 0.7;
+`;
+const Small = styled(Hint)`
+	margin-top: -2px;
+`;
+const Section = styled.div`
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+`;
+const SectionLabel = styled(Label)``;
+const IconDrop = styled.div`
+	border: 2px dashed ${(p) => p.theme.colors.border};
+	border-radius: 12px;
+	padding: 24px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 16px;
+	text-align: center;
+	img {
+		width: 96px;
+		height: 96px;
+		border-radius: 20%;
+		object-fit: cover;
+	}
+`;
+const UploadBtn = styled.button`
+	padding: 8px 16px;
+	border-radius: 8px;
+	border: none;
+	cursor: pointer;
+	background: ${(p) => p.theme.colors.accent};
+	color: #fff;
+	font-size: 14px;
+	font-weight: 600;
+`;
+const Placeholder = styled.div`
+	width: 96px;
+	height: 96px;
+	border-radius: 20%;
+	background: #5553;
+`;
+const HintAuto = styled(Hint)``;
+const PrivacyRow = styled.div`
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 16px;
+`;
+const Toggle = styled.input``;
+const HintSmall = styled(Hint)``;
+const DangerRow = styled.div`
+	padding-top: 12px;
+	border-top: 1px solid ${(p) => p.theme.colors.border};
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	color: #c0392b;
+	font-size: 14px;
+`;
+const DangerBtn = styled.button`
+	background: #c0392b;
+	border: none;
+	color: #fff;
+	border-radius: 8px;
+	padding: 8px 16px;
+	cursor: pointer;
+`;
+const SaveBtn = styled.button`
+	align-self: center;
+	margin-top: 8px;
+	width: 200px;
+	background: ${(p) => p.theme.colors.accent};
+	border: none;
+	border-radius: 8px;
+	padding: 12px;
+	color: #fff;
+	font-weight: 600;
+	cursor: pointer;
+`;
+
+/* ---- publish dropdown inner ---- */
+const PubSection = styled.div`
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+`;
+const H2 = styled.h2`
+	margin: 0;
+	font-size: 15px;
+	font-weight: 600;
+`;
+const InputLike = styled.div`
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 12px 14px;
+	border: 1px solid ${(p) => p.theme.colors.border};
+	border-radius: 10px;
+	background: ${(p) => p.theme.colors.bg};
+	font-size: 14px;
+	svg {
+		opacity: 0.6;
+	}
+`;
+const BigBtn = styled.button`
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	width: 100%;
+	padding: 12px 0;
+	border: none;
+	border-radius: 10px;
+	font-size: 15px;
+	font-weight: 600;
+	cursor: pointer;
+	background: ${(p) => p.theme.colors.accent};
+	color: #fff;
+	&:hover {
+		filter: brightness(1.05);
+	}
+`;
+const Divider = styled.hr`
+	border: none;
+	border-top: 1px solid ${(p) => p.theme.colors.border};
+`;
+
+const Container = styled.div`
+	max-width: 400px;
+	margin: 20px auto;
+	background: ${({ theme }) => theme.colors.bgAlt};
+	border-radius: 20px;
+	padding: 32px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 16px;
+	position: relative;
+	overflow: hidden;
+
+	&::before {
+		content: "";
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 4px;
+		background: linear-gradient(
+			90deg,
+			${({ theme }) => theme.colors.accent},
+			transparent
+		);
+	}
+`;
+
+const QRContainer = styled.div`
+	width: 220px;
+	height: 220px;
+	border: 2px solid ${({ theme }) => theme.colors.accent};
+	border-radius: 16px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: ${({ theme }) => theme.colors.bg};
+`;
+
+const QRImage = styled.img`
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	animation: fadeIn 0.5s ease-in-out;
+
+	@keyframes fadeIn {
+		from {
+			opacity: 0;
+			transform: scale(0.95);
+		}
+		to {
+			opacity: 1;
+			transform: scale(1);
+		}
+	}
+`;
+
+const Big = styled.code`
+	font-size: 18px;
+	font-family: "Courier New", Courier, monospace;
+	background: ${({ theme }) => theme.colors.bg};
+	padding: 8px 12px;
+	border-radius: 6px;
+	border: 1px solid ${({ theme }) => theme.colors.border};
+	word-break: break-all;
+	text-align: center;
+	transition: background 0.2s;
+
+	&:hover {
+		background: ${({ theme }) => theme.colors.accent}10;
+	}
+`;
+
+const Heading = styled.h3`
+	margin: 0;
+	font-size: 20px;
+	font-weight: 700;
+	background: linear-gradient(
+		45deg,
+		${({ theme }) => theme.colors.accent},
+		${({ theme }) => theme.colors.accent}80
+	);
+	-webkit-background-clip: text;
+	-webkit-text-fill-color: transparent;
+`;
+
+const Subtext = styled.p`
+	margin: 0;
+	font-size: 14px;
+	color: ${({ theme }) => theme.colors.fg}80;
+	font-style: italic;
 `;
