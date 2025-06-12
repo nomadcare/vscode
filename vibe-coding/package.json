@@ -1,6 +1,6 @@
 {
   "name": "vibe-coding",
-  "displayName": "Vibe Coding",
+  "displayName": "Collably",
   "publisher": "your-publisher",
   "version": "0.0.1",
   "engines": {
@@ -25,7 +25,7 @@
         {
           "type": "webview",
           "id": "vibeCodingView",
-          "name": "Vibe Coding"
+          "name": "Collably"
         }
       ]
     }
